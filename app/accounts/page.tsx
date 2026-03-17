@@ -1,267 +1,279 @@
 "use client";
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  X, Check, Trash2, Loader2, AlertCircle, 
-  RefreshCcw 
+  Search, UserCheck, UserX, 
+  MoreVertical, Mail, Bell,
+  ChevronLeft, ChevronRight, Loader2
 } from "lucide-react";
+import RoleGuard from "@/components/auth/RoleGuard";
 
-const BACKEND_URL = "http://localhost:8080";
-
-interface User { 
-  id: number; 
-  username: string; 
+// --- TYPES ---
+interface User {
+  id: number;
+  username: string;
+  full_name: string;
   email: string;
-  role: string; 
-  contact_number: string; 
-  is_active: boolean; 
+  role: string;
+  contact_number: string;
+  status: string;
+  is_active: boolean;
 }
 
 export default function AccountsPage() {
   const [users, setUsers] = useState<User[]>([]);
-  const [showModal, setShowModal] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [roleFilter, setRoleFilter] = useState("All Roles");
+  const [showPending, setShowPending] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const [selectedRoles, setSelectedRoles] = useState<Record<number, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState<number | null>(null);
 
-  const [selectedRequest, setSelectedRequest] = useState<User | null>(null);
-  const [selectedRole, setSelectedRole] = useState("Staff");
-
-  const fetchUsers = useCallback(async () => {
+  // 1. Fetch data from Go Backend
+  const fetchAccounts = async () => {
+    setIsLoading(true);
     try {
-      setLoading(true);
-      setError("");
-      const response = await fetch(`${BACKEND_URL}/auth/accounts`); 
-      const result = await response.json();
-      
-      if (response.ok && result.success) {
+      const res = await fetch("http://localhost:8080/auth/accounts");
+      const result = await res.json();
+      if (result.success) {
         setUsers(result.data);
-      } else {
-        setError(result.message || "Failed to fetch users");
       }
     } catch (err) {
-      setError("Connection error. Please check the backend database.");
+      console.error("Failed to fetch:", err);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
+  };
+
+  useEffect(() => {
+    fetchAccounts();
   }, []);
 
-  const handleToggleStatus = async (userId: number, currentStatus: boolean) => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/auth/user/${userId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: !currentStatus }), 
-      });
+  // 2. Filter Logic
+  const filteredUsers = users.filter(u => u.status !== 'pending').filter(u => {
+    const matchesSearch = u.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                         u.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesRole = roleFilter === "All Roles" || u.role.toLowerCase() === roleFilter.toLowerCase();
+    return matchesSearch && matchesRole;
+  });
 
-      const result = await response.json();
+  const pendingUsers = users.filter(u => u.status === 'pending');
 
-      if (response.ok && result.success) {
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentStatus } : u));
-      } else {
-        alert(result.message || "Failed to update status");
-      }
-    } catch (err) {
-      console.error("Connection Error:", err);
-      alert("Could not reach backend server.");
-    }
+  const handleRoleChange = (userId: number, role: string) => {
+    setSelectedRoles(prev => ({ ...prev, [userId]: role }));
   };
 
-  const handleApproveRequest = async (user: User, role: string) => {
+  // 3. Approve Action (Connects to handleToggleStatus in main.go)
+  const handleApprove = async (userId: number) => {
+    const role = selectedRoles[userId];
+    if (!role || role === "Select Role") {
+      alert("Please select a role before approving.");
+      return;
+    }
+
+    setIsSubmitting(userId);
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/user/${user.id}/status`, {
+      const res = await fetch(`http://localhost:8080/auth/user/${userId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: true })
+        body: JSON.stringify({
+          status: "active",
+          is_active: true,
+          role: role
+        })
       });
-      
+
       if (res.ok) {
-        setSelectedRequest(null);
-        setShowModal(false);
-        fetchUsers();
+        alert("Account Approved!");
+        fetchAccounts(); // Refresh list
       }
     } catch (err) {
-      alert("Failed to approve user");
+      alert("Error approving user");
+    } finally {
+      setIsSubmitting(null);
     }
   };
 
-  const handleReject = async (id: number) => {
-    if (!confirm("Are you sure you want to remove this user?")) return;
+  // 4. Deny/Delete Action
+  const handleDeny = async (userId: number) => {
+    if (!confirm("Are you sure you want to deny this request?")) return;
+    
+    setIsSubmitting(userId);
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/user/${id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) fetchUsers();
-    } catch (err) { alert("Error deleting user"); }
+      await fetch(`http://localhost:8080/auth/user/${userId}`, { method: "DELETE" });
+      fetchAccounts();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(null);
+    }
   };
-
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
-
-  const pendingUsers = users.filter(u => !u.is_active);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto font-sans">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-10">
-        <div>
-          <h1 className="text-3xl font-black text-[#1e293b]">User Accounts</h1>
-          <p className="text-slate-500 font-medium">Manage system access and roles</p>
-        </div>
+    <RoleGuard allowedRoles={["admin"]}>
+      <div className="p-8 max-w-7xl mx-auto bg-[#fdfbe9] min-h-screen font-sans">
         
-        <div className="flex gap-3">
-          <button onClick={fetchUsers} className="p-3 text-slate-400 hover:text-blue-600 transition-colors">
-            <RefreshCcw size={20} className={loading ? "animate-spin" : ""} />
-          </button>
+        {/* Header Section */}
+        <div className="flex justify-between items-end mb-8">
+          <div>
+            <h1 className="text-4xl font-black text-slate-800 tracking-tight uppercase">User Accounts</h1>
+            <p className="text-slate-500 font-bold mt-2 uppercase text-xs tracking-[0.2em]">Manage access and pending requests</p>
+          </div>
           
           <button 
-            onClick={() => setShowModal(true)}
-            className="bg-[#1d4ed8] text-white px-6 py-2.5 rounded-2xl font-bold flex items-center gap-3 shadow-lg"
+            onClick={() => setShowPending(true)}
+            className="bg-[#2D3142] text-white px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-3 hover:bg-black transition-all shadow-lg relative"
           >
-            Pending Requests 
-            <span className="bg-white text-[#1d4ed8] text-[10px] px-2 py-0.5 rounded-full font-black">
-              {pendingUsers.length}
-            </span>
+            <Bell size={18} />
+            Pending Requests
+            {pendingUsers.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-[10px] border-4 border-[#fdfbe9]">
+                {pendingUsers.length}
+              </span>
+            )}
           </button>
         </div>
-      </div>
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-2xl flex items-center gap-3 border border-red-100">
-          <AlertCircle size={20} />
-          <p className="font-semibold text-sm">{error}</p>
-          <button onClick={fetchUsers} className="ml-auto bg-white px-3 py-1 rounded-lg border text-xs font-bold font-sans">Retry</button>
-        </div>
-      )}
+        {/* Filter Bar */}
+        <div className="bg-white border-4 border-[#F3EBC7] p-4 rounded-[2rem] shadow-sm mb-8 flex flex-wrap gap-4 items-center">
+          <div className="flex-1 min-w-[300px] relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+            <input 
+              type="text"
+              placeholder="Search by name or email..."
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-transparent focus:border-[#6BCB3B] rounded-xl outline-none font-bold transition-all text-black"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
 
-      {/* Table */}
-      <div className="bg-white border-2 border-slate-100 rounded-[32px] overflow-hidden shadow-sm">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="bg-slate-50/50 border-b-2 border-slate-100">
-              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Full Name</th>
-              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Role</th>
-              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Contact</th>
-              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {loading ? (
-              <tr><td colSpan={4} className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" /></td></tr>
-            ) : (
-              users.map((acc) => (
-                <tr key={acc.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-8 py-6">
-                    <div>
-                      <p className="text-gray-900 font-black uppercase tracking-tight">{acc.username}</p>
-                      <p className="text-gray-400 text-xs font-medium">{acc.email}</p>
-                    </div>
-                  </td>
-                  <td className="px-8 py-6 text-center">
-                    <span className="text-[10px] font-black px-3 py-1 rounded-full border border-blue-100 bg-blue-50 text-blue-600 uppercase">
-                      {acc.role}
-                    </span>
-                  </td>
-                  <td className="px-8 py-6 text-center text-sm font-bold text-slate-500 italic">
-                    {acc.contact_number}
-                  </td>
-                  <td className="px-8 py-6 text-right">
-                    <div className="flex flex-col items-end gap-1">
-                      {/* TEXT LABELS: ACTIVE / INACTIVE */}
-                      <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
-                        acc.is_active ? 'text-green-600' : 'text-slate-400'
-                      }`}>
-                        {acc.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                      
-                      <div className="flex items-center gap-3">
-                        {/* ON/OFF Sub-label for clarity */}
-                        <span className="text-[9px] font-bold text-slate-300 uppercase">
-                          {acc.is_active ? 'ON' : 'OFF'}
-                        </span>
-
-                        {/* STATUS TOGGLE SWITCH */}
-                        <button
-                          onClick={() => handleToggleStatus(acc.id, acc.is_active)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none shadow-inner ${
-                            acc.is_active ? 'bg-green-500' : 'bg-slate-300'
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
-                              acc.is_active ? 'translate-x-6' : 'translate-x-1'
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pending Requests Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[40px] w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="p-8 border-b flex justify-between items-center bg-gray-50/50">
-              <h2 className="text-2xl font-black text-gray-800 tracking-tight">Requests</h2>
-              <button onClick={() => { setShowModal(false); setSelectedRequest(null); }} className="text-gray-400 hover:text-red-500"><X size={24}/></button>
-            </div>
-            
-            <div className="p-8">
-              {!selectedRequest ? (
-                <div className="space-y-4">
-                  {pendingUsers.length === 0 ? (
-                    <div className="text-center py-10 text-gray-400 font-bold">No pending requests.</div>
-                  ) : (
-                    pendingUsers.map((req) => (
-                      <div key={req.id} className="flex justify-between items-center bg-gray-50 p-5 rounded-[24px] border border-gray-100">
-                        <div>
-                          <p className="font-black text-gray-800 uppercase">{req.username}</p>
-                          <p className="text-[10px] font-bold text-gray-400">{req.email}</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => setSelectedRequest(req)} className="p-3 bg-white text-green-600 border border-green-100 rounded-xl hover:bg-green-600 hover:text-white transition-all"><Check size={18}/></button>
-                          <button onClick={() => handleReject(req.id)} className="p-3 bg-white text-red-500 border border-red-100 rounded-xl hover:bg-red-50 transition-all"><Trash2 size={18}/></button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-6 text-center">
-                  <div>
-                    <p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-1">Assign Role For</p>
-                    <p className="text-2xl font-black text-gray-800 uppercase">{selectedRequest.username}</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-3 gap-3">
-                    {['Staff', 'Cook', 'Admin'].map((role) => (
-                      <button
-                        key={role}
-                        onClick={() => setSelectedRole(role)}
-                        className={`py-4 rounded-2xl text-xs font-black transition-all border-2 ${
-                          selectedRole === role ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-100 text-gray-400'
-                        }`}
-                      >
-                        {role}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button 
-                    onClick={() => handleApproveRequest(selectedRequest, selectedRole)} 
-                    className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-xs shadow-xl hover:bg-blue-700 transition-colors"
-                  >
-                    Confirm and Approve
-                  </button>
-                </div>
-              )}
-            </div>
+          <div className="flex items-center gap-2 bg-slate-50 border-2 border-slate-100 p-1 rounded-xl">
+            {["All Roles", "Admin", "Staff", "Cook"].map((role) => (
+              <button
+                key={role}
+                onClick={() => setRoleFilter(role)}
+                className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${
+                  roleFilter === role ? "bg-white shadow-md text-[#6BCB3B]" : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {role}
+              </button>
+            ))}
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Main Table */}
+        <div className="bg-white border-4 border-[#F3EBC7] rounded-[2.5rem] overflow-hidden shadow-xl">
+          {isLoading ? (
+            <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-[#6BCB3B]" size={40}/></div>
+          ) : (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-[#FFFBE6] border-b-4 border-[#F3EBC7]">
+                  <th className="p-6 text-left text-[10px] font-black uppercase tracking-widest text-slate-400 w-16">ID</th>
+                  <th className="p-6 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">Full Name</th>
+                  <th className="p-6 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">Contact</th>
+                  <th className="p-6 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">Role</th>
+                  <th className="p-6 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">Status</th>
+                  <th className="p-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y-2 divide-[#F3EBC7]">
+                {filteredUsers.map((user) => (
+                  <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="p-6 font-bold text-slate-400 text-sm">#{user.id}</td>
+                    <td className="p-6">
+                      <p className="font-black text-slate-800 uppercase text-sm">{user.full_name || user.username}</p>
+                      <p className="text-[10px] font-bold text-slate-400 lowercase">{user.email}</p>
+                    </td>
+                    <td className="p-6 font-bold text-slate-600 text-sm">{user.contact_number || "N/A"}</td>
+                    <td className="p-6">
+                      <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                        user.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                      }`}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td className="p-6">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${user.is_active ? 'bg-[#6BCB3B]' : 'bg-slate-300'}`} />
+                        <span className="font-black text-[10px] uppercase text-slate-600">
+                          {user.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-6 text-center">
+                      <button 
+                        onClick={() => handleDeny(user.id)}
+                        className="p-2 hover:bg-red-50 rounded-lg transition-colors text-slate-400 hover:text-red-600 shadow-sm border border-transparent"
+                      >
+                        <UserX size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Pending Requests Modal */}
+        {showPending && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white rounded-[3rem] border-8 border-[#F3EBC7] w-full max-w-2xl shadow-2xl">
+              <div className="p-8 border-b-4 border-[#F3EBC7] flex justify-between items-center bg-[#FFFBE6] rounded-t-[2.3rem]">
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Pending Requests</h2>
+                <button onClick={() => setShowPending(false)} className="text-slate-400 hover:text-black font-black uppercase text-xs">CLOSE</button>
+              </div>
+              
+              <div className="p-8 max-h-[60vh] overflow-y-auto space-y-4">
+                {pendingUsers.length === 0 ? (
+                   <p className="text-center font-bold text-slate-400 uppercase text-xs py-10">No pending requests</p>
+                ) : pendingUsers.map((req) => (
+                  <div key={req.id} className="flex items-center justify-between p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl group transition-all">
+                    <div className="flex-1">
+                      <p className="font-black text-slate-800 uppercase text-sm">{req.full_name || req.username}</p>
+                      <div className="flex gap-3 text-[10px] font-bold text-slate-400 uppercase">
+                        <span className="flex items-center gap-1"><Mail size={12}/> {req.email}</span>
+                        <span>|</span>
+                        <span>{req.contact_number}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 items-center">
+                      <select 
+                        onChange={(e) => handleRoleChange(req.id, e.target.value)}
+                        className="bg-white border-2 border-slate-200 rounded-xl px-3 py-2 text-[10px] font-black uppercase outline-none text-black"
+                      >
+                        <option>Select Role</option>
+                        <option value="staff">Staff</option>
+                        <option value="cook">Cook</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      
+                      <button 
+                        disabled={isSubmitting === req.id}
+                        onClick={() => handleDeny(req.id)}
+                        className="bg-red-600 text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-red-700 disabled:opacity-50"
+                      >
+                        Deny
+                      </button>
+
+                      <button 
+                        disabled={isSubmitting === req.id}
+                        onClick={() => handleApprove(req.id)}
+                        className="bg-[#6BCB3B] text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-[#58a830] disabled:opacity-50"
+                      >
+                        {isSubmitting === req.id ? <Loader2 className="animate-spin" size={14}/> : 'Approve'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </RoleGuard>
   );
 }

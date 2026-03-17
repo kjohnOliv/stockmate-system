@@ -5,103 +5,132 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function ForgotPasswordPage() {
+  const [step, setStep] = useState(1); // 1: Email, 2: OTP, 3: New Password
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [passwords, setPasswords] = useState({ new: "", confirm: "" });
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState("");
   const router = useRouter();
 
-  const handleResetRequest = async (e: React.FormEvent) => {
+  const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setMessage("");
-
-    try {
-      const res = await fetch("http://localhost:8080/auth/forgot-password", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email }),
-      });
-
-      // 1. Validate response type to prevent "Unexpected end of JSON" errors
-      const contentType = res.headers.get("content-type");
-      
-      if (contentType && contentType.includes("application/json")) {
-        const data = await res.json();
-        
-        if (res.ok && data.token) {
-          setMessage("Success! Verification complete.");
-          // Small delay so the user can actually read the success message
-          setTimeout(() => {
-            router.push(`/reset-password?token=${data.token}`);
-          }, 1500);
-        } else {
-          // Display the specific error message from the Go backend
-          setMessage(data.error || "Failed to verify email. Please try again.");
-        }
-      } else {
-        // 2. Fallback for non-JSON responses (like 404 or 500 plain text errors)
-        const textError = await res.text();
-        setMessage(textError || `Server error: ${res.status}`);
-      }
-    } catch (error: any) {
-      console.error("Connection error:", error);
-      // 3. Network-level error handling
-      setMessage("Connection error. Ensure the Go server is active on port 8080.");
-    } finally {
-      setIsLoading(false);
+    const res = await fetch("http://localhost:8080/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    if (res.ok) {
+      setStep(2);
+      setMessage("Success! Code sent to your email.");
+    } else {
+      setMessage("Email not found.");
     }
+    setIsLoading(false);
+  };
+
+  const handleVerifyOTP = async () => {
+    setIsLoading(true);
+    const res = await fetch("http://localhost:8080/auth/verify-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    });
+    if (res.ok) {
+      setStep(3);
+      setMessage("Code verified. Enter your new password.");
+    } else {
+      setMessage("Invalid code.");
+    }
+    setIsLoading(false);
+  };
+
+  const handleChangePassword = async () => {
+    if (passwords.new !== passwords.confirm) {
+      setMessage("Passwords do not match!");
+      return;
+    }
+    setIsLoading(true);
+    const res = await fetch("http://localhost:8080/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ email, password: passwords.new }),
+    });
+    if (res.ok) {
+      setMessage("Success! Redirecting to login...");
+      setTimeout(() => router.push("/login"), 2000);
+    } else {
+      setMessage("Failed to update password.");
+    }
+    setIsLoading(false);
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FFFDE7] p-4">
-      <div className="bg-white p-8 rounded-[32px] shadow-xl w-full max-w-md border-4 border-[#F3EBC7] text-center">
-        <h2 className="text-2xl font-black mb-4 text-[#2D3142]">Reset Password</h2>
-        <p className="text-gray-500 text-sm mb-6">
-          Enter your email to receive a secure reset token.
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-[#FFFDE7] p-4 font-sans text-black">
+      <div className="bg-white p-8 rounded-[32px] shadow-xl w-full max-w-md border-4 border-[#F3EBC7]">
+        <h2 className="text-2xl font-black mb-4 text-[#2D3142] text-center">
+          {step === 1 && "Forgot Password"}
+          {step === 2 && "Enter OTP Code"}
+          {step === 3 && "Reset Password"}
+        </h2>
 
-        <form onSubmit={handleResetRequest} className="space-y-4 text-black">
-          <div>
-            <label className="block text-left font-bold mb-1 text-sm text-[#2D3142]">Email Address</label>
+        {/* Step 1: Email Input */}
+        {step === 1 && (
+          <form onSubmit={handleSendOTP} className="space-y-4">
             <input
               type="email"
-              placeholder="admin@stockmate.com"
-              className="w-full p-4 rounded-2xl border-2 border-black outline-none focus:border-[#6BCB3B] transition-all bg-white"
+              placeholder="Enter your email"
+              className="w-full p-4 rounded-2xl border-2 border-black"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
               required
             />
-          </div>
-          
-          <button
-            type="submit"
-            disabled={isLoading}
-            className={`w-full py-4 text-white rounded-2xl font-bold text-lg shadow-md transition-all active:scale-95 ${
-              isLoading ? "bg-gray-400 cursor-not-allowed" : "bg-[#6BCB3B] hover:bg-[#5bb331]"
-            }`}
-          >
-            {isLoading ? "Verifying..." : "Send Reset Link"}
-          </button>
-        </form>
+            <button className="w-full py-4 bg-[#6BCB3B] text-white rounded-2xl font-bold">
+              {isLoading ? "Sending..." : "Send Code"}
+            </button>
+          </form>
+        )}
 
-        {message && (
-          <div className={`mt-4 p-3 rounded-xl text-sm font-bold ${
-            message.includes("Success") 
-              ? "bg-green-100 text-green-600 border border-green-200" 
-              : "bg-red-100 text-red-500 border border-red-200"
-          }`}>
-            {message}
+        {/* Step 2: OTP Input */}
+        {step === 2 && (
+          <div className="space-y-4">
+            <input
+              type="text"
+              placeholder="Enter 6-digit code"
+              className="w-full p-4 rounded-2xl border-2 border-black text-center tracking-[1em] font-bold"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+            <button onClick={handleVerifyOTP} className="w-full py-4 bg-[#6BCB3B] text-white rounded-2xl font-bold">
+              {isLoading ? "Verifying..." : "Validate Code"}
+            </button>
           </div>
         )}
 
-        <div className="mt-8">
-          <Link href="/login" className="text-gray-400 font-bold hover:text-black transition-colors text-sm underline decoration-2 underline-offset-4">
-            Back to Login
-          </Link>
-        </div>
+        {/* Step 3: Password Input */}
+        {step === 3 && (
+          <div className="space-y-4">
+            <input
+              type="password"
+              placeholder="New Password"
+              className="w-full p-4 rounded-2xl border-2 border-black"
+              onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+            />
+            <input
+              type="password"
+              placeholder="Confirm Password"
+              className="w-full p-4 rounded-2xl border-2 border-black"
+              onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+            />
+            <button onClick={handleChangePassword} className="w-full py-4 bg-[#6BCB3B] text-white rounded-2xl font-bold">
+              {isLoading ? "Updating..." : "Change Password"}
+            </button>
+          </div>
+        )}
+
+        {message && (
+          <div className="mt-4 p-3 rounded-xl text-center text-sm font-bold bg-gray-100">
+            {message}
+          </div>
+        )}
       </div>
     </div>
   );
