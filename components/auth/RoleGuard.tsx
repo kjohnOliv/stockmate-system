@@ -1,4 +1,5 @@
 "use client";
+
 import { useAuth, UserRole } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { ReactNode, useEffect } from "react";
@@ -12,8 +13,7 @@ export default function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
-  // We check access directly. Since we're using strings/enums, 
-  // the check is lightning fast even without memoization.
+  // Access check
   const userRole = user?.role as UserRole;
   const hasAccess = user && allowedRoles.includes(userRole);
 
@@ -24,7 +24,7 @@ export default function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
         // No session? Go to login
         router.replace("/login");
       } else if (!hasAccess) {
-        // Logged in but wrong role? Go to home/dashboard
+        // Logged in but wrong role? Go back to dashboard
         router.replace("/dashboard");
       }
     }

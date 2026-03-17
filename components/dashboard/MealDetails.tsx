@@ -1,19 +1,10 @@
 "use client";
 
 import React from 'react';
-import { 
-  X, Utensils, Scale, AlertCircle, Edit3 
-} from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { X, Trash2, Utensils, Users, AlertCircle } from 'lucide-react';
 
+// --- INTERFACES ---
+// We define these here so the component knows what data to expect
 interface Ingredient {
   inventoryId: number | null;
   itemName?: string;
@@ -35,88 +26,93 @@ interface MealDetailsProps {
   onClose: () => void;
   recipe: Meal | null;
   onEdit: (meal: Meal) => void;
+  onDelete: (id: number) => void;
 }
 
-export default function MealDetails({ isOpen, onClose, recipe, onEdit }: MealDetailsProps) {
-  if (!recipe) return null;
+export default function MealDetails({ 
+  isOpen, 
+  onClose, 
+  recipe, 
+  onEdit, 
+  onDelete 
+}: MealDetailsProps) {
+  
+  if (!isOpen || !recipe) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] rounded-[2rem] p-0 overflow-hidden">
-        <DialogHeader className="p-8 bg-blue-600 text-white border-b-4 border-black">
-          <div className="flex justify-between items-start">
-            <div className="space-y-1">
-              <Badge variant="outline" className="bg-white text-blue-600 border-2 border-black font-black uppercase text-[10px]">
-                {recipe.category}
-              </Badge>
-              <DialogTitle className="text-4xl font-black uppercase tracking-tighter italic">
-                {recipe.name}
-              </DialogTitle>
-            </div>
-            <Button 
-              variant="ghost" 
-              onClick={() => onEdit(recipe)}
-              className="bg-white text-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-y-1 hover:shadow-none transition-all font-black text-xs uppercase"
-            >
-              <Edit3 size={16} className="mr-2" /> Edit
-            </Button>
+    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-2xl rounded-[40px] border-4 border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+        
+        {/* Header */}
+        <div className="p-6 border-b-4 border-black bg-[#FFF9C4] flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <Utensils size={24} />
+            <h2 className="text-xl font-black italic uppercase tracking-tight">Recipe Details</h2>
           </div>
-        </DialogHeader>
-
-        <div className="p-8 space-y-8">
-          {/* Quick Stats */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 border-2 border-black rounded-2xl bg-slate-50 flex items-center gap-4">
-              <div className="p-3 bg-blue-100 border-2 border-black rounded-xl">
-                <Scale size={20} className="text-blue-600" />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase text-slate-400">Base Pax Size</p>
-                <p className="text-xl font-black">{recipe.paxSize} People</p>
-              </div>
-            </div>
-            <div className="p-4 border-2 border-black rounded-2xl bg-orange-50 flex items-center gap-4">
-              <div className="p-3 bg-orange-100 border-2 border-black rounded-xl">
-                <AlertCircle size={20} className="text-orange-600" />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase text-slate-400">Allergen Info</p>
-                <p className="text-sm font-bold">{recipe.allergens || "None Listed"}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Ingredient List */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
-              <Utensils size={20} /> Required Ingredients
-            </h3>
-            <ScrollArea className="h-[250px] pr-4">
-              <div className="space-y-2">
-                {recipe.ingredients.map((ing, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-4 border-2 border-slate-100 rounded-xl hover:border-black transition-colors group">
-                    <span className="font-bold text-slate-700 group-hover:text-black">
-                      {ing.itemName || "Unknown Item"}
-                    </span>
-                    <span className="font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-                      {ing.qty} {ing.unit}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </div>
-        </div>
-
-        <div className="p-6 bg-slate-50 border-t-4 border-black flex justify-end">
-          <Button 
+          <button 
             onClick={onClose}
-            className="bg-black text-white px-8 py-6 rounded-xl font-black uppercase tracking-widest hover:bg-slate-800 transition-colors"
+            className="hover:rotate-90 transition-transform p-1"
           >
-            Close Recipe
-          </Button>
+            <X size={24} strokeWidth={3} />
+          </button>
         </div>
-      </DialogContent>
-    </Dialog>
+
+        {/* Content */}
+        <div className="p-8 max-h-[70vh] overflow-y-auto">
+          <div className="mb-8">
+            <h1 className="text-4xl font-black uppercase mb-2">{recipe.name}</h1>
+            <div className="flex gap-4">
+              <span className="bg-blue-100 border-2 border-black px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                {recipe.category}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] font-black uppercase text-slate-500">
+                <Users size={14} /> {recipe.paxSize} PAX
+              </span>
+            </div>
+          </div>
+
+          {/* Ingredients Section */}
+          <div className="mb-8">
+            <h3 className="font-black uppercase italic underline mb-4">Ingredients List</h3>
+            <div className="space-y-2">
+              {recipe.ingredients.map((ing, idx) => (
+                <div key={idx} className="flex justify-between border-b-2 border-slate-100 pb-2 font-bold text-sm">
+                  <span>{ing.itemName || "Unknown Item"}</span>
+                  <span className="text-[#76ba53]">{ing.qty} {ing.unit}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Allergens */}
+          {recipe.allergens && (
+            <div className="bg-red-50 border-2 border-red-200 p-4 rounded-2xl flex items-start gap-3">
+              <AlertCircle className="text-red-500 shrink-0" size={20} />
+              <div>
+                <p className="text-[10px] font-black uppercase text-red-400 leading-none mb-1">Allergen Alert</p>
+                <p className="text-red-700 font-bold text-sm uppercase">{recipe.allergens}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-6 border-t-4 border-black bg-slate-50 flex gap-4">
+          <button 
+            onClick={() => recipe.id && onDelete(recipe.id)}
+            className="flex items-center gap-2 text-red-500 font-black uppercase text-xs hover:bg-red-100 p-3 rounded-xl transition-colors"
+          >
+            <Trash2 size={18} /> Delete
+          </button>
+
+          <button 
+            onClick={() => onEdit(recipe)}
+            className="flex-1 bg-black text-white p-4 rounded-2xl font-black uppercase text-xs shadow-[4px_4px_0px_0px_rgba(118,186,83,1)] hover:translate-y-0.5 hover:shadow-none transition-all"
+          >
+            Edit Recipe
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -2,16 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Package, AlertTriangle, TrendingUp, 
-  Clock, Calendar as CalendarIcon, ChevronRight, ArrowUpRight, Loader2
+  Clock, Calendar as CalendarIcon, ChevronRight, ArrowUpRight, Loader2,
+  PackageSearch
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
 export default function Dashboard() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  
   const [mounted, setMounted] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [invStats, setInvStats] = useState({ inStock: 0, lowStock: 0, noStock: 0 });
+  const [userCount, setUserCount] = useState(0);
 
   useEffect(() => {
     setMounted(true);
@@ -19,14 +24,38 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Redirect if not logged in (Basic client-side guard)
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (!authLoading && !user) {
       router.push("/login");
     }
-  }, [user, isLoading, router]);
+  }, [user, authLoading, router]);
 
-  if (!mounted || isLoading) {
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+        const [invRes, userRes] = await Promise.all([
+          fetch(`${apiUrl}/api/dashboard/overview`),
+          fetch(`${apiUrl}/auth/accounts`)
+        ]);
+
+        const invResult = await invRes.json();
+        const userResult = await userRes.json();
+
+        if (invResult.success) setInvStats(invResult.data);
+        if (userResult.success) setUserCount(userResult.data.length);
+        
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
+
+    if (user) fetchDashboardData();
+  }, [user]);
+
+  if (!mounted || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fdfbe9]">
         <Loader2 className="animate-spin text-[#6BCB3B]" size={40} />
@@ -35,10 +64,10 @@ export default function Dashboard() {
   }
 
   const stats = [
-    { label: "Total Users", value: "12", icon: <Users size={24}/>, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Items", value: "148", icon: <Package size={24}/>, color: "text-[#6BCB3B]", bg: "bg-green-50" },
-    { label: "Low Stock", value: "5", icon: <AlertTriangle size={24}/>, color: "text-orange-600", bg: "bg-orange-50" },
-    { label: "Monthly Growth", value: "+12.5%", icon: <TrendingUp size={24}/>, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Total Users", value: userCount.toString(), icon: <Users size={24}/>, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Items In Stock", value: invStats.inStock.toString(), icon: <Package size={24}/>, color: "text-[#6BCB3B]", bg: "bg-green-50" },
+    { label: "Low Stock Alert", value: invStats.lowStock.toString(), icon: <AlertTriangle size={24}/>, color: "text-orange-600", bg: "bg-orange-50" },
+    { label: "Out of Stock", value: invStats.noStock.toString(), icon: <PackageSearch size={24}/>, color: "text-red-600", bg: "bg-red-50" },
   ];
 
   return (
@@ -46,10 +75,11 @@ export default function Dashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
           <h1 className="text-4xl font-black text-slate-800 tracking-tight leading-none uppercase">
-            HELLO, <span className="text-[#6BCB3B]">{user?.username || "USER"}</span>!
+            {/* FIXED: Changed user.username to user.name */}
+            HELLO, <span className="text-[#6BCB3B]">{user?.name || "USER"}</span>!
           </h1>
           <p className="text-slate-500 font-bold mt-2 uppercase text-xs tracking-[0.2em]">
-            System Overview & Quick Stats
+            {user?.role || "Staff"} • System Overview
           </p>
         </div>
 
@@ -71,7 +101,12 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
         {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white border-4 border-[#F3EBC7] p-6 rounded-[32px] shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-transform cursor-default group">
+          <div key={idx} className="bg-white border-4 border-[#F3EBC7] p-6 rounded-[32px] shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-transform cursor-default group relative overflow-hidden">
+            {isDataLoading && (
+              <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-10">
+                <Loader2 className="animate-spin text-slate-300" size={20} />
+              </div>
+            )}
             <div className={`w-12 h-12 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center mb-4 group-hover:rotate-6 transition-transform`}>
               {stat.icon}
             </div>
@@ -85,25 +120,21 @@ export default function Dashboard() {
         <div className="lg:col-span-2 bg-white border-4 border-[#F3EBC7] rounded-[40px] p-8 shadow-xl shadow-slate-200/50">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Recent Activity</h2>
-            <button className="text-[10px] font-black text-[#6BCB3B] uppercase tracking-widest flex items-center gap-1 hover:underline">
-              View All <ChevronRight size={14}/>
+            <button onClick={() => router.push('/inventory')} className="text-[10px] font-black text-[#6BCB3B] uppercase tracking-widest flex items-center gap-1 hover:underline">
+              Manage Inventory <ChevronRight size={14}/>
             </button>
           </div>
           <div className="space-y-4">
             {[1, 2, 3].map((_, i) => (
               <div key={i} className="flex items-center justify-between p-4 rounded-3xl bg-slate-50 border-2 border-slate-100 hover:border-[#6BCB3B]/30 transition-colors">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-white rounded-xl border-2 border-slate-200 flex items-center justify-center font-black text-slate-400 text-xs">
-                    {i + 1}
-                  </div>
+                  <div className="w-10 h-10 bg-white rounded-xl border-2 border-slate-200 flex items-center justify-center font-black text-slate-400 text-xs">{i + 1}</div>
                   <div>
-                    <p className="font-black text-slate-800 text-sm uppercase">Stock Updated: Lunch Meals</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">By Staff • 2 mins ago</p>
+                    <p className="font-black text-slate-800 text-sm uppercase">Stock Sync Complete</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Database Connected Successfully</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-green-500 font-black text-xs">
-                  <ArrowUpRight size={14}/> +20
-                </div>
+                <div className="flex items-center gap-1 text-green-500 font-black text-xs"><ArrowUpRight size={14}/> LIVE</div>
               </div>
             ))}
           </div>
@@ -113,9 +144,9 @@ export default function Dashboard() {
           <div className="relative z-10">
             <h2 className="text-xl font-black uppercase tracking-tighter mb-4">Stock Tip</h2>
             <p className="font-bold text-green-50 leading-relaxed text-sm">
-              "Keep an eye on the <b>Low Stock</b> alerts. Reordering before you hit zero ensures the canteen never stops serving!"
+              "Keeping the <b>In Stock</b> count high and <b>Low Stock</b> alerts low ensures the canteen stays profitable."
             </p>
-            <button className="mt-8 bg-white text-[#6BCB3B] px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-green-50 transition-colors shadow-lg">
+            <button onClick={() => router.push('/inventory')} className="mt-8 bg-white text-[#6BCB3B] px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95">
               Check Inventory
             </button>
           </div>

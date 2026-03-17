@@ -1,85 +1,65 @@
-"use client";
-import { createContext, useContext, useState, ReactNode, useEffect } from "react";
+'use client';
 
-export type UserRole = "admin" | "staff" | "cook";
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
-type User = {
-  id: number;
-  username: string;
-  full_name: string;
-  email: string;
+export type UserRole = 'admin' | 'cook' | 'staff';
+
+export type User = {
+  id: string;
+  name: string;
   role: UserRole;
-  is_active: boolean;
-  status: string;
 };
 
 type AuthContextType = {
   user: User | null;
-  login: (userData: any) => void;
+  login: (userData: User) => void;
   logout: () => void;
   isLoading: boolean;
-  isAdmin: boolean;
-  isStaff: boolean;
-  isCook: boolean;
-  isAdminOrCook: boolean;
+  isAdmin: boolean; // Added helper
+  isCook: boolean;  // Added helper
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-useEffect(() => {
-  const checkAuth = () => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser && savedUser !== "undefined") {
+  useEffect(() => {
+    const savedUser = localStorage.getItem('stockmate_user');
+    if (savedUser) {
       try {
-        const parsedUser = JSON.parse(savedUser);
-        if (parsedUser?.id) {
-          parsedUser.role = parsedUser.role?.toLowerCase() as UserRole;
-          setUser(parsedUser);
-        }
+        setUser(JSON.parse(savedUser));
       } catch (e) {
-        localStorage.removeItem("user");
+        localStorage.removeItem('stockmate_user');
       }
     }
     setIsLoading(false);
-  };
-  checkAuth();
-}, []);
+  }, []);
 
-  const login = (userData: any) => {
-    const normalizedUser = {
-      ...userData,
-      role: userData.role.toLowerCase() as UserRole
-    };
-    setUser(normalizedUser);
-    localStorage.setItem("user", JSON.stringify(normalizedUser));
+  const login = (userData: User) => {
+    setUser(userData);
+    localStorage.setItem('stockmate_user', JSON.stringify(userData));
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("user");
+    localStorage.removeItem('stockmate_user');
   };
 
-  const isAdmin = user?.role === "admin";
-  const isStaff = user?.role === "staff";
-  const isCook = user?.role === "cook";
-  const isAdminOrCook = isAdmin || isCook;
+  // Logic for the helpers
+  const isAdmin = user?.role === 'admin';
+  const isCook = user?.role === 'cook';
 
   return (
-    <AuthContext.Provider value={{ 
-      user, login, logout, isLoading, 
-      isAdmin, isStaff, isCook, isAdminOrCook 
-    }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading, isAdmin, isCook }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used inside AuthProvider");
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
   return context;
-}
+};
