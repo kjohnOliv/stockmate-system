@@ -1,59 +1,89 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { useAuth } from "@/context/AuthContext"; 
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+import { ApiClient } from "@/lib/api";
 import { 
-  Loader2, Pencil, User, Mail, Phone, 
-  Shield, CheckCircle, AlertCircle, Lock 
+  Loader2, Pencil, User, Mail,
+  Shield, CheckCircle, AlertCircle, Lock, Save, X
 } from "lucide-react";
 
 interface UserProfile {
   id: number;
   username: string;
+  full_name: string;
   email: string;
   role: string;
-  contact_number: string;
+  status: string;
   is_active: boolean;
+  contact_number?: string;
 }
 
 export default function ProfilePage() {
-  const { user } = useAuth(); 
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { user } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState({ full_name: "", contact_number: "" });
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      const storedUser = localStorage.getItem("user");
-      const parsedUser = storedUser ? JSON.parse(storedUser) : null;
-      const userId = user?.id || parsedUser?.id;
+    if (!user) {
+      setError("No user session found. Please log in again.");
+      setLoading(false);
+      return;
+    }
 
-      if (!userId) {
-        setError("No user session found. Please log in again.");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setError(null);
-        const response = await fetch(`http://localhost:8080/auth/user/${userId}`);
-        
-        if (!response.ok) {
-          throw new Error(`User profile not found (Status: ${response.status})`);
-        }
-
-        const data = await response.json();
-        setProfile(data);
-      } catch (err: any) {
-        console.error("Profile Fetch Error:", err);
-        setError(err.message || "Unable to load profile. Please check if the Go server is running.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    // Fetch full profile from backend
     fetchProfile();
   }, [user]);
+
+  const fetchProfile = async () => {
+    if (!user?.id) return;
+    try {
+      setLoading(true);
+      const res = await ApiClient.get(`/api/profile/${user.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        const profileData = data.data || data;
+        setProfile(profileData);
+        setEditData({
+          full_name: profileData.full_name || "",
+          contact_number: profileData.contact_number || ""
+        });
+        setError(null);
+      } else {
+        setError("Failed to load profile");
+      }
+    } catch (err) {
+      console.error("Profile fetch error:", err);
+      setError("Failed to load profile");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user?.id) return;
+    try {
+      setIsSaving(true);
+      const res = await ApiClient.put(`/api/profile/${user.id}`, editData);
+      if (res.ok) {
+        await fetchProfile();
+        setIsEditing(false);
+      } else {
+        setError("Failed to update profile");
+      }
+    } catch (err) {
+      console.error("Profile save error:", err);
+      setError("Failed to save profile");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Loading State
   if (loading) {
@@ -86,12 +116,62 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {isEditing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[32px] border border-slate-200 shadow-2xl w-full max-w-md p-8">
+            <h2 className="text-2xl font-black text-gray-900 mb-6">Edit Profile</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Full Name</label>
+                <input
+                  type="text"
+                  value={editData.full_name}
+                  onChange={(e) => setEditData({...editData, full_name: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6BCB3B]"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Contact Number</label>
+                <input
+                  type="tel"
+                  value={editData.contact_number}
+                  onChange={(e) => setEditData({...editData, contact_number: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6BCB3B]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={handleSaveProfile}
+                disabled={isSaving}
+                className="flex-1 bg-[#6BCB3B] hover:bg-[#5ab52b] text-white font-bold py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                {isSaving ? "SAVING..." : "SAVE"}
+              </button>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-900 font-bold py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <X size={18} /> CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="flex justify-between items-end mb-8">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">Account Profile</h1>
           <p className="text-gray-500 text-sm font-medium">Manage your personal information and security</p>
         </div>
-        <button className="bg-[#63c63e] text-white px-6 py-2.5 rounded-2xl flex items-center gap-2 font-black text-sm hover:shadow-lg transition-all active:scale-95 shadow-md shadow-green-100">
+        <button 
+          onClick={() => setIsEditing(true)}
+          className="bg-[#6BCB3B] text-white px-6 py-2.5 rounded-2xl flex items-center gap-2 font-black text-sm hover:shadow-lg transition-all active:scale-95 shadow-md shadow-green-100"
+        >
           <Pencil size={16} /> Edit Profile
         </button>
       </header>
@@ -125,16 +205,16 @@ export default function ProfilePage() {
               <td className="px-8 py-6 text-right"><CheckCircle size={18} className="text-green-500 ml-auto" /></td>
             </tr>
 
-            {/* Contact Row */}
+            {/* Status Row */}
             <tr className="hover:bg-slate-50/30 transition-colors">
               <td className="px-8 py-6 flex items-center gap-3 text-slate-600 font-bold">
-                <Phone size={18} className="text-slate-400" /> Contact Number
+                <CheckCircle size={18} className="text-slate-400" /> Account Status
               </td>
-              <td className="px-8 py-6 text-gray-900 font-black">
-                {profile?.contact_number || "Not Provided"}
+              <td className="px-8 py-6 text-gray-900 font-black uppercase">
+                {profile?.status || "Not Provided"}
               </td>
               <td className="px-8 py-6 text-right">
-                <span className="text-[10px] font-black bg-slate-100 px-2 py-1 rounded text-slate-500">PRIMARY</span>
+                <span className="text-[10px] font-black bg-green-100 px-2 py-1 rounded text-green-600">{profile?.is_active ? "ACTIVE" : "INACTIVE"}</span>
               </td>
             </tr>
 

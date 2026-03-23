@@ -4,58 +4,101 @@ import { useState, useEffect } from "react";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import Sidebar from "@/components/Sidebar";
+import AppTopbar from "@/components/AppTopbar";
 import { usePathname } from "next/navigation";
 import { Geist } from "next/font/google";
-import { cn } from "../lib/utils";
-import { Menu } from "lucide-react";
-import axios from "axios";
+import { cn } from "@/lib/utils";
+import { ApiClient } from "@/lib/api";
 
-const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
+const geist = Geist({ 
+  subsets: ['latin'], 
+  variable: '--font-sans',
+  display: 'swap' 
+});
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+type AccountAlertUser = {
+  status?: string;
+  is_active?: boolean;
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  // Notification States
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingMealPlans, setPendingMealPlans] = useState(0);
   const [lowStockCount, setLowStockCount] = useState(0);
+  const [activePlanStatus, setActivePlanStatus] = useState("");
 
-  const hideSidebarRoutes = [
-    "/login", 
-    "/register", 
-    "/forgot-password", 
-    "/reset-password", 
-    "/pending-approval",
-    "/"
-  ];
-  
+  const hideSidebarRoutes = ["/login", "/register", "/forgot-password", "/reset-password", "/pending-approval", "/"];
   const hideSidebar = hideSidebarRoutes.includes(pathname);
 
-  // Sync Notification Data from Go Backend
+  const isPendingStatus = (status?: string, isActive?: boolean) => {
+    const normalized = (status || "").toLowerCase().trim();
+    if (normalized === "pending") return true;
+    if (isActive === false && normalized !== "approved" && normalized !== "denied") return true;
+    return false;
+  };
+
   useEffect(() => {
     const fetchAlerts = async () => {
+      if (hideSidebar) return;
       try {
-        // 1. Get Pending Users
-        const userRes = await axios.get("http://localhost:8080/auth/pending-count");
-        if (userRes.data.success) setPendingCount(userRes.data.data);
+        const accountsRes = await ApiClient.get("/api/users");
+        if (accountsRes.ok) {
+          const accountsData = await accountsRes.json();
+          const accounts = Array.isArray(accountsData?.data)
+            ? accountsData.data
+            : Array.isArray(accountsData)
+            ? accountsData
+            : [];
 
-        // 2. Get Low Stock Count
-        const stockRes = await axios.get("http://localhost:8080/api/dashboard/overview");
-        if (stockRes.data.success) setLowStockCount(stockRes.data.data.lowStock);
+          setPendingCount(accounts.filter((u: AccountAlertUser) => isPendingStatus(u.status, u.is_active)).length);
+        }
+
+        const stockRes = await ApiClient.get("/api/dashboard/overview");
+        if (stockRes.ok) {
+          const stockData = await stockRes.json();
+          if (stockData?.success) setLowStockCount(stockData.data?.lowStock ?? 0);
+        }
+
+        const mealPlansRes = await ApiClient.get("/api/meal-plans");
+        if (mealPlansRes.ok) {
+          const mealPlansData = await mealPlansRes.json();
+          const plans = Array.isArray(mealPlansData?.data)
+            ? mealPlansData.data
+            : Array.isArray(mealPlansData)
+            ? mealPlansData
+            : [];
+
+          const count = plans.filter((p: any) => {
+            const status = (p.status || "").toString().toLowerCase();
+            return status === "pending" || status === "awaiting" || status === "submitted";
+          }).length;
+
+          setPendingMealPlans(count);
+        }
+
+        const activeRes = await ApiClient.get("/api/meal-plans/active");
+        if (activeRes.ok) {
+          const activeData = await activeRes.json();
+          const activePlan = activeData?.data || activeData;
+          if (activePlan) {
+            const status = activePlan.status || activePlan.status?.toString() || "published";
+            setActivePlanStatus(status.toString().toUpperCase());
+          } else {
+            setActivePlanStatus("");
+          }
+        } else {
+          setActivePlanStatus("");
+        }
       } catch (err) {
         console.error("Layout Sync Error:", err);
       }
     };
 
-    if (!hideSidebar) {
-      fetchAlerts();
-      const interval = setInterval(fetchAlerts, 30000); // Check every 30s
-      return () => clearInterval(interval);
-    }
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 30000); 
+    return () => clearInterval(interval);
   }, [pathname, hideSidebar]);
 
   return (
@@ -63,8 +106,6 @@ export default function RootLayout({
       <body className="bg-[#f8f9fa] antialiased">
         <AuthProvider>
           <div className="flex min-h-screen">
-            
-            {/* Sidebar with Props */}
             {!hideSidebar && (
               <Sidebar 
                 isOpen={isSidebarOpen} 
@@ -73,45 +114,20 @@ export default function RootLayout({
                 lowStockCount={lowStockCount}
               />
             )}
-
-            {/* Main Content Area */}
             <main className="flex-1 flex flex-col min-w-0 min-h-screen">
-              
-              {/* Mobile Header (Hamburger Menu) */}
               {!hideSidebar && (
-                <header className="lg:hidden flex items-center justify-between p-4 bg-[#FFF9C4] border-b border-gray-300 sticky top-0 z-40">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-white rounded-full border border-green-700 p-1">
-                        <img src="/logo.png" className="w-full h-full object-contain" alt="logo" />
-                    </div>
-                    <span className="font-black text-xs uppercase text-gray-800">StockMate</span>
-                  </div>
-                  
-                  <button 
-                    onClick={() => setIsSidebarOpen(true)}
-                    className="relative p-2 bg-white rounded-lg shadow-sm border border-gray-200 active:scale-95 transition-transform"
-                  >
-                    <Menu size={20} className="text-gray-700" />
-                    
-                    {/* Mobile Global Alert Badge (Shows if ANY alert exists) */}
-                    {(pendingCount > 0 || lowStockCount > 0) && (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white border border-white">
-                        {pendingCount + lowStockCount}
-                      </span>
-                    )}
-                  </button>
-                </header>
+                <AppTopbar
+                  onOpenSidebar={() => setIsSidebarOpen(true)}
+                  pendingCount={pendingCount}
+                  pendingMealPlans={pendingMealPlans}
+                  lowStockCount={lowStockCount}
+                  activePlanStatus={activePlanStatus}
+                />
               )}
-
-              {/* Dynamic Page Padding */}
-              <div className={cn(
-                "flex-1 overflow-x-hidden",
-                !hideSidebar ? 'p-4 md:p-8 lg:p-10' : 'p-0'
-              )}>
+              <div className={cn("flex-1 overflow-x-hidden", !hideSidebar ? 'p-4 md:p-8' : 'p-0')}>
                 {children}
               </div>
             </main>
-
           </div>
         </AuthProvider>
       </body>

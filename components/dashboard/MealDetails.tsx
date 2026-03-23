@@ -4,7 +4,6 @@ import React from 'react';
 import { X, Trash2, Utensils, Users, AlertCircle } from 'lucide-react';
 
 // --- INTERFACES ---
-// We define these here so the component knows what data to expect
 interface Ingredient {
   inventoryId: number | null;
   itemName?: string;
@@ -16,7 +15,8 @@ interface Meal {
   id?: number | null;
   name: string;
   category: string;
-  paxSize: number;
+  paxSize?: number;  // Optional to handle both naming conventions
+  pax_size?: number; // Added to match Go backend naming
   allergens: string;
   ingredients: Ingredient[];
 }
@@ -39,6 +39,9 @@ export default function MealDetails({
   
   if (!isOpen || !recipe) return null;
 
+  // Helper to get the correct serving size regardless of the field name
+  const displayPax = recipe.paxSize || recipe.pax_size || 0;
+
   return (
     <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white w-full max-w-2xl rounded-[40px] border-4 border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
@@ -58,15 +61,15 @@ export default function MealDetails({
         </div>
 
         {/* Content */}
-        <div className="p-8 max-h-[70vh] overflow-y-auto">
+        <div className="p-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
           <div className="mb-8">
-            <h1 className="text-4xl font-black uppercase mb-2">{recipe.name}</h1>
-            <div className="flex gap-4">
+            <h1 className="text-4xl font-black uppercase mb-2 leading-none">{recipe.name}</h1>
+            <div className="flex gap-4 mt-3">
               <span className="bg-blue-100 border-2 border-black px-3 py-1 rounded-full text-[10px] font-black uppercase">
                 {recipe.category}
               </span>
               <span className="flex items-center gap-1 text-[10px] font-black uppercase text-slate-500">
-                <Users size={14} /> {recipe.paxSize} PAX
+                <Users size={14} /> {displayPax} PAX
               </span>
             </div>
           </div>
@@ -75,12 +78,16 @@ export default function MealDetails({
           <div className="mb-8">
             <h3 className="font-black uppercase italic underline mb-4">Ingredients List</h3>
             <div className="space-y-2">
-              {recipe.ingredients.map((ing, idx) => (
-                <div key={idx} className="flex justify-between border-b-2 border-slate-100 pb-2 font-bold text-sm">
-                  <span>{ing.itemName || "Unknown Item"}</span>
-                  <span className="text-[#76ba53]">{ing.qty} {ing.unit}</span>
-                </div>
-              ))}
+              {recipe.ingredients && recipe.ingredients.length > 0 ? (
+                recipe.ingredients.map((ing, idx) => (
+                  <div key={idx} className="flex justify-between border-b-2 border-slate-100 pb-2 font-bold text-sm">
+                    <span className="uppercase">{ing.itemName || "Unknown Item"}</span>
+                    <span className="text-[#76ba53]">{ing.qty} {ing.unit}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-slate-400 italic text-sm">No ingredients listed.</p>
+              )}
             </div>
           </div>
 
@@ -99,6 +106,7 @@ export default function MealDetails({
         {/* Footer Actions */}
         <div className="p-6 border-t-4 border-black bg-slate-50 flex gap-4">
           <button 
+            type="button"
             onClick={() => recipe.id && onDelete(recipe.id)}
             className="flex items-center gap-2 text-red-500 font-black uppercase text-xs hover:bg-red-100 p-3 rounded-xl transition-colors"
           >
@@ -106,8 +114,9 @@ export default function MealDetails({
           </button>
 
           <button 
+            type="button"
             onClick={() => onEdit(recipe)}
-            className="flex-1 bg-black text-white p-4 rounded-2xl font-black uppercase text-xs shadow-[4px_4px_0px_0px_rgba(118,186,83,1)] hover:translate-y-0.5 hover:shadow-none transition-all"
+            className="flex-1 bg-black text-white p-4 rounded-2xl font-black uppercase text-xs shadow-[4px_4px_0px_0px_rgba(118,186,83,1)] hover:translate-y-0.5 hover:shadow-none transition-all active:translate-y-1"
           >
             Edit Recipe
           </button>

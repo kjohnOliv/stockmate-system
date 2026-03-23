@@ -5,6 +5,7 @@ import {
   Plus, Trash2, Save, ChevronDown, Utensils, 
   Loader2, Search, X, Info, ChevronRight 
 } from 'lucide-react';
+import { ApiClient } from "@/lib/api";
 
 interface Ingredient {
   inventoryId: string;
@@ -43,8 +44,8 @@ export default function MealDirectory() {
     setLoading(true);
     try {
       const [invRes, recRes] = await Promise.all([
-        fetch('http://localhost:8080/api/inventory'),
-        fetch('http://localhost:8080/api/recipes')
+        ApiClient.get("/api/inventory"),
+        ApiClient.get("/api/recipes")
       ]);
       const invResult = await invRes.json();
       const recResult = await recRes.json();
@@ -69,11 +70,7 @@ export default function MealDirectory() {
     }
 
     try {
-      const res = await fetch('http://localhost:8080/api/recipes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRecipe),
-      });
+      const res = await ApiClient.post('/api/recipes', newRecipe);
       if (res.ok) {
         setNewRecipe({ name: '', category: 'Lunch', allergens: '', paxSize: 50, ingredients: [{ inventoryId: '', qty: 0 }] });
         fetchData();
@@ -86,7 +83,7 @@ export default function MealDirectory() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this recipe template?")) return;
-    await fetch(`http://localhost:8080/api/recipes/${id}`, { method: 'DELETE' });
+    await ApiClient.delete(`/api/recipes/${id}`);
     fetchData();
   };
 
@@ -104,11 +101,7 @@ export default function MealDirectory() {
         const deduction = ing.qty * multiplier;
         const newQty = Math.max(0, Number(item.qty) - deduction);
 
-        await fetch(`http://localhost:8080/api/inventory/${item.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...item, qty: String(newQty) }),
-        });
+        await ApiClient.put(`/api/inventory/${item.id}`, { ...item, qty: String(newQty) });
       }
       alert("Inventory scaling complete. Stock deducted!");
       fetchData();

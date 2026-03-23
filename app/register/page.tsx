@@ -1,156 +1,192 @@
 "use client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
+import { ApiClient } from "@/lib/api";
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
+    username: "",
+    full_name: "",
     email: "",
-    contactNumber: "",
-    password: "", // Added password field
+    password: "",
+    contact_number: "",
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [feedback, setFeedback] = useState({ type: "", message: "" });
+  const [error, setError] = useState("");
+  const [showPendingModal, setShowPendingModal] = useState(false);
   const router = useRouter();
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setFeedback({ type: "", message: "" });
+    setError("");
 
     try {
-      const response = await fetch("http://localhost:8080/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          full_name: `${formData.firstName} ${formData.lastName}`.trim(),
-          username: formData.email.split('@')[0], 
-          email: formData.email,
-          password: formData.password, // Send password to backend
-          contact_number: formData.contactNumber,
-          role: "staff", // Default role, admin can change this later
-          status: "pending", // Explicitly set status for admin review
-          is_active: false    // Accounts are disabled by default
-        }),
+      const response = await ApiClient.post("/auth/register", {
+        ...formData,
+        role: "user", // Default role
+        status: "pending" // Default status for admin approval
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        const errorText = await response.text();
+        // Prefer a backend message if provided
+        let message = "Registration failed. Please try again.";
 
-      if (response.ok) {
-        setFeedback({ 
-            type: "success", 
-            message: "Registration request sent! Please wait for admin approval." 
-        });
-        setTimeout(() => router.push("/login"), 2500);
-      } else {
-        setFeedback({ type: "error", message: data.message || "Registration failed" });
+        try {
+          const errorData = JSON.parse(errorText);
+          message = errorData.message || message;
+        } catch {
+          // Keep default message
+        }
+
+        // Handle common conflict case without throwing an error
+        if (response.status === 409) {
+          message = message || "Email or username already registered.";
+        }
+
+        setError(message);
+        setIsLoading(false);
+        return;
       }
-    } catch (error) {
-      setFeedback({ type: "error", message: "Connection error. Is your server running?" });
+
+      await response.json();
+      setShowPendingModal(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFDE7] flex items-center justify-center p-4 text-black font-sans">
-      <div className="bg-white p-8 rounded-[2.5rem] shadow-xl w-full max-w-md border-4 border-[#F3EBC7] animate-in fade-in zoom-in duration-300">
-        <h1 className="text-2xl font-black text-[#2D3142] mb-6 text-center uppercase tracking-tighter">Sign Up</h1>
+    <div className="min-h-screen bg-[#F3F4F6] flex items-center justify-center p-4 text-black font-sans">
+      <div className="bg-white p-10 rounded-[32px] border border-slate-200 shadow-2xl w-full max-w-lg">
+        
+        <header className="text-center mb-8">
+          <h1 className="text-3xl font-black italic uppercase tracking-tighter">Join StockMate</h1>
+          <p className="text-[10px] font-bold text-gray-400 uppercase">Create your account to get started</p>
+        </header>
 
-        {feedback.message && (
-          <div className={`mb-6 p-4 rounded-[20px] border-2 flex items-center gap-3 animate-in slide-in-from-top-2 ${
-            feedback.type === 'success' ? 'bg-green-50 border-green-100 text-green-600' : 'bg-red-50 border-red-100 text-red-600'
-          }`}>
-            {feedback.type === 'success' ? <CheckCircle2 size={20}/> : <AlertCircle size={20}/>}
-            <p className="text-[10px] font-black uppercase tracking-tight text-left leading-tight">
-                {feedback.message}
-            </p>
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-600 font-bold text-xs uppercase">
+            <AlertCircle size={20} />
+            <p>{error}</p>
           </div>
         )}
 
-        <form onSubmit={handleRegister} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-                <label className="block font-black text-[10px] uppercase tracking-widest text-gray-400 mb-1 ml-1">First Name</label>
-                <input
-                    type="text"
-                    className="w-full p-3 rounded-xl border-2 border-black outline-none focus:border-[#6BCB3B] font-bold"
-                    placeholder="John"
-                    required
-                    value={formData.firstName}
-                    onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                />
-            </div>
-            <div>
-                <label className="block font-black text-[10px] uppercase tracking-widest text-gray-400 mb-1 ml-1">Last Name</label>
-                <input
-                    type="text"
-                    className="w-full p-3 rounded-xl border-2 border-black outline-none focus:border-[#6BCB3B] font-bold"
-                    placeholder="Doe"
-                    required
-                    value={formData.lastName}
-                    onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                />
-            </div>
-          </div>
-
-          <div>
-            <label className="block font-black text-[10px] uppercase tracking-widest text-gray-400 mb-1 ml-1">Email Address</label>
-            <input
-              type="email"
-              className="w-full p-3 rounded-xl border-2 border-black outline-none focus:border-[#6BCB3B] font-bold"
-              placeholder="email@example.com"
-              required
-              value={formData.email}
-              onChange={(e) => setFormData({...formData, email: e.target.value})}
+        <form onSubmit={handleRegister} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Full Name */}
+          <div className="md:col-span-2">
+            <input 
+              name="full_name" 
+              placeholder="FULL NAME" 
+              required 
+              className="w-full p-4 rounded-2xl border border-slate-200 font-bold outline-none focus:border-[#6BCB3B]"
+              onChange={handleChange} 
             />
           </div>
 
-          <div>
-            <label className="block font-black text-[10px] uppercase tracking-widest text-gray-400 mb-1 ml-1">Contact Number</label>
-            <input
-              type="text"
-              className="w-full p-3 rounded-xl border-2 border-black outline-none focus:border-[#6BCB3B] font-bold"
-              placeholder="09XXXXXXXXX"
-              required
-              value={formData.contactNumber}
-              onChange={(e) => setFormData({...formData, contactNumber: e.target.value})}
+          {/* Username */}
+          <input 
+            name="username" 
+            placeholder="USERNAME" 
+            required 
+            className="w-full p-4 rounded-2xl border border-slate-200 font-bold outline-none focus:border-[#6BCB3B]"
+            onChange={handleChange} 
+          />
+
+          {/* Contact Number */}
+          <input 
+            name="contact_number" 
+            placeholder="CONTACT #" 
+            required 
+            className="w-full p-4 rounded-2xl border border-slate-200 font-bold outline-none focus:border-[#6BCB3B]"
+            onChange={handleChange} 
+          />
+
+          {/* Email */}
+          <div className="md:col-span-2">
+            <input 
+              name="email" 
+              type="email" 
+              placeholder="EMAIL ADDRESS" 
+              required 
+              className="w-full p-4 rounded-2xl border border-slate-200 font-bold outline-none focus:border-[#6BCB3B]"
+              onChange={handleChange} 
+            />
+          </div>
+          
+          {/* Password */}
+          <div className="md:col-span-2">
+            <input 
+              name="password" 
+              type="password" 
+              placeholder="PASSWORD" 
+              required 
+              className="w-full p-4 rounded-2xl border border-slate-200 font-bold outline-none focus:border-[#6BCB3B]"
+              onChange={handleChange} 
             />
           </div>
 
-          <div>
-            <label className="block font-black text-[10px] uppercase tracking-widest text-gray-400 mb-1 ml-1">Password</label>
-            <input
-              type="password"
-              className="w-full p-3 rounded-xl border-2 border-black outline-none focus:border-[#6BCB3B] font-bold"
-              placeholder="••••••••"
-              required
-              value={formData.password}
-              onChange={(e) => setFormData({...formData, password: e.target.value})}
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading || feedback.type === 'success'}
-            className={`w-full text-white py-4 rounded-2xl font-black uppercase text-sm tracking-widest mt-6 shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
-              isLoading || feedback.type === 'success' ? "bg-gray-400 cursor-not-allowed" : "bg-[#6BCB3B] hover:bg-[#5bb331] shadow-[#6BCB3B]/30"
-            }`}
+          <button 
+            type="submit" 
+            disabled={isLoading}
+            className="md:col-span-2 bg-[#6BCB3B] text-white py-4 rounded-2xl font-black uppercase shadow-sm hover:bg-green-600 transition-all active:scale-95"
           >
-            {isLoading ? <Loader2 size={18} className="animate-spin" /> : null}
-            {isLoading ? "Sending..." : "Send Request"}
+            {isLoading ? <Loader2 className="animate-spin mx-auto" /> : "Register Account"}
           </button>
         </form>
 
-        <div className="mt-8 text-center">
-          <Link href="/login" className="text-gray-400 text-[10px] font-black uppercase tracking-widest hover:text-black hover:underline">
-            Already have an account? <span className="text-[#6BCB3B]">Login</span>
+        <div className="mt-8 pt-6 border-t border-slate-200 text-center">
+          <p className="text-[10px] font-black uppercase text-gray-400 mb-3">Already have an account?</p>
+          <Link 
+            href="/login" 
+            className="inline-block w-full py-3 rounded-2xl border border-slate-200 bg-white font-black uppercase text-xs shadow-sm hover:bg-slate-50 transition-all"
+          >
+            Back to Login
           </Link>
         </div>
       </div>
+
+      {showPendingModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white w-full max-w-md rounded-[2rem] border border-slate-200 shadow-2xl p-8 relative">
+            <button
+              onClick={() => {
+                setShowPendingModal(false);
+                router.push("/pending-approval");
+              }}
+              className="absolute top-4 right-4 p-2 rounded-full border border-slate-200 text-slate-500 hover:text-black"
+            >
+              <X size={18} />
+            </button>
+            <div className="w-14 h-14 rounded-full bg-green-100 text-green-600 flex items-center justify-center mb-5">
+              <CheckCircle2 size={28} />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800">Waiting for Admin Approval</h2>
+            <p className="text-slate-500 mt-3">
+              Your account has been created successfully. An admin needs to approve it before you can access the system.
+            </p>
+            <button
+              onClick={() => {
+                setShowPendingModal(false);
+                router.push("/pending-approval");
+              }}
+              className="mt-6 w-full bg-[#6BCB3B] text-white py-3 rounded-2xl font-black uppercase shadow-sm hover:bg-green-600"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

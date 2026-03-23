@@ -1,27 +1,33 @@
 "use client";
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, Package, AlertTriangle, TrendingUp, 
-  Clock, Calendar as CalendarIcon, ChevronRight, ArrowUpRight, Loader2,
-  PackageSearch
+
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ClipboardCheck,
+  Loader2,
+  Package,
+  PackageSearch,
+  ShieldCheck,
+  Users,
 } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { normalizeMealPlanRecords, normalizePlanStatus } from "@/lib/meal-planning";
 
 export default function Dashboard() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, isAdmin, isCook, isStaff } = useAuth();
   const router = useRouter();
-  
+
   const [mounted, setMounted] = useState(false);
-  const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [invStats, setInvStats] = useState({ inStock: 0, lowStock: 0, noStock: 0 });
   const [userCount, setUserCount] = useState(0);
+  const [planCount, setPlanCount] = useState({ pending: 0, approved: 0, current: 0 });
 
   useEffect(() => {
     setMounted(true);
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -33,18 +39,39 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-        const [invRes, userRes] = await Promise.all([
-          fetch(`${apiUrl}/api/dashboard/overview`),
-          fetch(`${apiUrl}/auth/accounts`)
+        const [userRes, invRes, planRes] = await Promise.all([
+          ApiClient.get("/api/users"),
+          ApiClient.get("/api/dashboard/overview"),
+          ApiClient.get("/api/meal-plans"),
         ]);
 
-        const invResult = await invRes.json();
-        const userResult = await userRes.json();
+        if (userRes.ok) {
+          const userResult = await userRes.json();
+          const users = Array.isArray(userResult?.data) ? userResult.data : [];
+          setUserCount(users.length);
+        }
 
-        if (invResult.success) setInvStats(invResult.data);
-        if (userResult.success) setUserCount(userResult.data.length);
-        
+        if (invRes.ok) {
+          const invResult = await invRes.json();
+          if (invResult.success && invResult.data) {
+            setInvStats({
+              inStock: invResult.data.inStock || 0,
+              lowStock: invResult.data.lowStock || 0,
+              noStock: invResult.data.noStock || 0,
+            });
+          }
+        }
+
+        if (planRes.ok) {
+          const planResult = await planRes.json();
+          const plans = normalizeMealPlanRecords(planResult?.success ? planResult.data : planResult?.data ?? planResult);
+          const today = new Date().toISOString().slice(0, 10);
+          setPlanCount({
+            pending: plans.filter((plan) => normalizePlanStatus(plan.status) === "pending").length,
+            approved: plans.filter((plan) => normalizePlanStatus(plan.status) === "approved").length,
+            current: plans.filter((plan) => plan.dateFrom <= today && plan.dateTo >= today).length,
+          });
+        }
       } catch (err) {
         console.error("Dashboard fetch error:", err);
       } finally {
@@ -55,102 +82,146 @@ export default function Dashboard() {
     if (user) fetchDashboardData();
   }, [user]);
 
+  const stats = useMemo(
+    () => [
+      { label: "Items In Stock", value: invStats.inStock, icon: <Package size={22} />, tone: "bg-green-50 text-green-700" },
+      { label: "Low Stock Alert", value: invStats.lowStock, icon: <AlertTriangle size={22} />, tone: "bg-orange-50 text-orange-700" },
+      { label: "Out of Stock", value: invStats.noStock, icon: <PackageSearch size={22} />, tone: "bg-red-50 text-red-700" },
+      { label: isAdmin ? "Total Users" : "Current Plans", value: isAdmin ? userCount : planCount.current, icon: isAdmin ? <Users size={22} /> : <CalendarDays size={22} />, tone: "bg-blue-50 text-blue-700" },
+    ],
+    [invStats, isAdmin, userCount, planCount]
+  );
+
   if (!mounted || authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#fdfbe9]">
+      <div className="min-h-screen flex items-center justify-center bg-[#F3F4F6]">
         <Loader2 className="animate-spin text-[#6BCB3B]" size={40} />
       </div>
     );
   }
 
-  const stats = [
-    { label: "Total Users", value: userCount.toString(), icon: <Users size={24}/>, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Items In Stock", value: invStats.inStock.toString(), icon: <Package size={24}/>, color: "text-[#6BCB3B]", bg: "bg-green-50" },
-    { label: "Low Stock Alert", value: invStats.lowStock.toString(), icon: <AlertTriangle size={24}/>, color: "text-orange-600", bg: "bg-orange-50" },
-    { label: "Out of Stock", value: invStats.noStock.toString(), icon: <PackageSearch size={24}/>, color: "text-red-600", bg: "bg-red-50" },
-  ];
-
   return (
-    <div className="p-8 max-w-7xl mx-auto bg-[#fdfbe9] min-h-screen font-sans">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+    <div className="max-w-7xl mx-auto space-y-10">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-4xl font-black text-slate-800 tracking-tight leading-none uppercase">
-            {/* FIXED: Changed user.username to user.name */}
-            HELLO, <span className="text-[#6BCB3B]">{user?.name || "USER"}</span>!
+          <h1 className="text-4xl font-black text-slate-800">
+            Hello, <span className="text-[#6BCB3B]">{user?.full_name || "User"}</span>
           </h1>
-          <p className="text-slate-500 font-bold mt-2 uppercase text-xs tracking-[0.2em]">
-            {user?.role || "Staff"} • System Overview
+          <p className="text-slate-500 font-medium italic mt-2">
+            {isAdmin && "Admin command center for approvals, analytics, and operations."}
+            {isCook && "Kitchen planning dashboard for submissions, recipe prep, and inventory readiness."}
+            {isStaff && "Current service overview and approved prep checklist access."}
           </p>
-        </div>
-
-        <div className="flex gap-4">
-          <div className="bg-white border-4 border-[#F3EBC7] px-6 py-3 rounded-2xl flex items-center gap-3 shadow-sm min-w-[160px]">
-            <Clock className="text-[#6BCB3B]" size={20} />
-            <span className="font-black text-slate-700 tabular-nums">
-              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-          </div>
-          <div className="bg-white border-4 border-[#F3EBC7] px-6 py-3 rounded-2xl flex items-center gap-3 shadow-sm">
-            <CalendarIcon className="text-[#6BCB3B]" size={20} />
-            <span className="font-black text-slate-700">
-              {currentTime.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-            </span>
-          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white border-4 border-[#F3EBC7] p-6 rounded-[32px] shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-transform cursor-default group relative overflow-hidden">
+          <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
             {isDataLoading && (
-              <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-10">
-                <Loader2 className="animate-spin text-slate-300" size={20} />
+              <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
+                <Loader2 className="animate-spin text-slate-400" size={20} />
               </div>
             )}
-            <div className={`w-12 h-12 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center mb-4 group-hover:rotate-6 transition-transform`}>
-              {stat.icon}
-            </div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{stat.label}</p>
-            <h3 className="text-3xl font-black text-slate-800">{stat.value}</h3>
+            <div className={`mb-4 p-3 rounded-xl w-fit ${stat.tone}`}>{stat.icon}</div>
+            <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{stat.label}</p>
+            <h3 className="text-3xl font-black text-slate-800 mt-1">{stat.value}</h3>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white border-4 border-[#F3EBC7] rounded-[40px] p-8 shadow-xl shadow-slate-200/50">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Recent Activity</h2>
-            <button onClick={() => router.push('/inventory')} className="text-[10px] font-black text-[#6BCB3B] uppercase tracking-widest flex items-center gap-1 hover:underline">
-              Manage Inventory <ChevronRight size={14}/>
-            </button>
-          </div>
-          <div className="space-y-4">
-            {[1, 2, 3].map((_, i) => (
-              <div key={i} className="flex items-center justify-between p-4 rounded-3xl bg-slate-50 border-2 border-slate-100 hover:border-[#6BCB3B]/30 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-white rounded-xl border-2 border-slate-200 flex items-center justify-center font-black text-slate-400 text-xs">{i + 1}</div>
-                  <div>
-                    <p className="font-black text-slate-800 text-sm uppercase">Stock Sync Complete</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Database Connected Successfully</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 text-green-500 font-black text-xs"><ArrowUpRight size={14}/> LIVE</div>
-              </div>
-            ))}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h2 className="font-black text-slate-800 uppercase mb-6">
+            {isAdmin ? "Quick Actions" : "Role Snapshot"}
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {isAdmin && (
+              <>
+                <button onClick={() => router.push("/accounts")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Review Accounts</p>
+                  <p className="text-sm text-slate-500 mt-1">{userCount} users in the system</p>
+                </button>
+                <button onClick={() => router.push("/meal-plan")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Pending Meal Plans</p>
+                  <p className="text-sm text-slate-500 mt-1">{planCount.pending} plans need admin action</p>
+                </button>
+                <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Inventory Audit</p>
+                  <p className="text-sm text-slate-500 mt-1">{invStats.lowStock} low-stock items to review</p>
+                </button>
+                <button onClick={() => router.push("/meal-directory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Recipe Management</p>
+                  <p className="text-sm text-slate-500 mt-1">Update meal directory and recipe coverage</p>
+                </button>
+              </>
+            )}
+
+            {isCook && (
+              <>
+                <button onClick={() => router.push("/meal-plan")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Submit Meal Plan</p>
+                  <p className="text-sm text-slate-500 mt-1">{planCount.pending} plans currently awaiting approval</p>
+                </button>
+                <button onClick={() => router.push("/meal-directory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Manage Recipes</p>
+                  <p className="text-sm text-slate-500 mt-1">Keep menu selections aligned with inventory</p>
+                </button>
+              </>
+            )}
+
+            {isStaff && (
+              <>
+                <button onClick={() => router.push("/meal-plan")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Current Checklist</p>
+                  <p className="text-sm text-slate-500 mt-1">Open the approved plan checklist when available</p>
+                </button>
+                <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Inventory Status</p>
+                  <p className="text-sm text-slate-500 mt-1">Track stock readiness before meal service</p>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="bg-[#6BCB3B] rounded-[40px] p-8 shadow-xl shadow-green-200/50 text-white relative overflow-hidden group">
-          <div className="relative z-10">
-            <h2 className="text-xl font-black uppercase tracking-tighter mb-4">Stock Tip</h2>
-            <p className="font-bold text-green-50 leading-relaxed text-sm">
-              "Keeping the <b>In Stock</b> count high and <b>Low Stock</b> alerts low ensures the canteen stays profitable."
-            </p>
-            <button onClick={() => router.push('/inventory')} className="mt-8 bg-white text-[#6BCB3B] px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95">
-              Check Inventory
-            </button>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h2 className="font-black text-slate-800 uppercase mb-6">
+            {isAdmin ? "Analytics" : "Operations"}
+          </h2>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 p-5 bg-slate-50">
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="text-[#6BCB3B]" size={20} />
+                <p className="font-black text-slate-800">
+                  {isAdmin ? "Approved Plans" : "Ready for Service"}
+                </p>
+              </div>
+              <p className="text-3xl font-black text-slate-800 mt-3">{planCount.approved}</p>
+              <p className="text-sm text-slate-500 mt-1">
+                {isAdmin
+                  ? "Meal plans approved and ready for staff visibility."
+                  : "Approved plans available for operational execution."}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-5 bg-slate-50">
+              <div className="flex items-center gap-3">
+                <ClipboardCheck className="text-blue-600" size={20} />
+                <p className="font-black text-slate-800">
+                  {isAdmin ? "Pending Reviews" : "Action Needed"}
+                </p>
+              </div>
+              <p className="text-3xl font-black text-slate-800 mt-3">{planCount.pending}</p>
+              <p className="text-sm text-slate-500 mt-1">
+                {isAdmin
+                  ? "Submitted meal plans waiting for budget review and approval."
+                  : "Items that still require approval or stock attention."}
+              </p>
+            </div>
           </div>
-          <Package size={120} className="absolute -bottom-4 -right-4 text-white/10 group-hover:scale-110 transition-transform duration-500" />
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { ApiClient } from "@/lib/api";
 
 export const useDashboardData = () => {
   const [stats, setStats] = useState({
@@ -10,7 +11,7 @@ export const useDashboardData = () => {
   });
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/dashboard/overview")
+    ApiClient.get("/api/dashboard/overview")
       .then((res) => res.json())
       .then((res) => {
         if (res.success) setStats(res.data);

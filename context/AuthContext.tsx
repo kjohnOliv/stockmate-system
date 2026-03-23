@@ -1,13 +1,19 @@
-'use client';
+"use client";
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type UserRole = 'admin' | 'cook' | 'staff';
 
 export type User = {
-  id: string;
-  name: string;
+  id: number; // Changed to number to match PostgreSQL Serial
+  username: string;
+  full_name: string;
+  email: string;
   role: UserRole;
+  status: string;
+  is_active: boolean;
+  contact_number?: string;
+  token?: string; // JWT token for API authentication
 };
 
 type AuthContextType = {
@@ -15,8 +21,10 @@ type AuthContextType = {
   login: (userData: User) => void;
   logout: () => void;
   isLoading: boolean;
-  isAdmin: boolean; // Added helper
-  isCook: boolean;  // Added helper
+  isAdmin: boolean;
+  isCook: boolean;
+  isStaff: boolean;
+  updateUser: (userData: Partial<User>) => void;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,11 +34,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Restore user from localStorage on mount
     const savedUser = localStorage.getItem('stockmate_user');
     if (savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
+        const parsedUser = JSON.parse(savedUser);
+        
+        // Simple session validation - check if user data is complete
+        if (parsedUser.id && parsedUser.email) {
+          setUser(parsedUser);
+        } else {
+          // Invalid user data, clear storage
+          localStorage.removeItem('stockmate_user');
+        }
+      } catch (err) {
+        console.error("Failed to parse saved user", err);
         localStorage.removeItem('stockmate_user');
       }
     }
@@ -38,8 +56,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = (userData: User) => {
-    setUser(userData);
-    localStorage.setItem('stockmate_user', JSON.stringify(userData));
+    // Sanitize user data - only store necessary fields
+    const sanitizedUser: User = {
+      id: userData.id,
+      username: userData.username,
+      full_name: userData.full_name,
+      email: userData.email,
+      role: userData.role,
+      status: userData.status,
+      is_active: userData.is_active,
+      contact_number: userData.contact_number,
+      token: userData.token, // Store token if provided
+    };
+    
+    setUser(sanitizedUser);
+    localStorage.setItem('stockmate_user', JSON.stringify(sanitizedUser));
   };
 
   const logout = () => {
@@ -47,12 +78,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('stockmate_user');
   };
 
-  // Logic for the helpers
+  const updateUser = (userData: Partial<User>) => {
+    if (user) {
+      const updatedUser = { ...user, ...userData };
+      login(updatedUser);
+    }
+  };
+
   const isAdmin = user?.role === 'admin';
   const isCook = user?.role === 'cook';
+  const isStaff = user?.role === 'staff';
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading, isAdmin, isCook }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading, isAdmin, isCook, isStaff, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -60,6 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  if (!context) throw new Error("useAuth must be used within an AuthProvider");
   return context;
 };
