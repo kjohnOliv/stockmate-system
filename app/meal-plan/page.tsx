@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import RoleGuard from "@/components/auth/RoleGuard";
+import MealPlanPreviewDialog from "@/components/meal-plan/MealPlanPreviewDialog";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import {
@@ -97,6 +98,10 @@ export default function MealPlannerApp() {
   const [editingPlanId, setEditingPlanId] = useState<number | null>(null);
   const [editingBudgetId, setEditingBudgetId] = useState<number | null>(null);
   const [budgetDraft, setBudgetDraft] = useState("");
+  const [previewPlan, setPreviewPlan] = useState<MealPlanRecord | null>(null);
+
+  const formatCurrency = (value: number) =>
+    `PHP ${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
   useEffect(() => {
     setPlans((current) => createPlansFromRange(dateRange.from, dateRange.to, current));
@@ -209,6 +214,14 @@ export default function MealPlannerApp() {
   const handlePaxChange = (planIndex: number, mealType: MealType, itemIndex: number, pax: number) => {
     const next = [...plans];
     next[planIndex].meals[mealType].items[itemIndex].pax = pax > 0 ? pax : 1;
+    setPlans(next);
+  };
+
+  const handleManualCostChange = (planIndex: number, mealType: MealType, itemIndex: number, value: string) => {
+    const parsed = value.trim() === "" ? undefined : Number(value);
+    const next = [...plans];
+    next[planIndex].meals[mealType].items[itemIndex].manualCostPerServing =
+      parsed === undefined || !Number.isFinite(parsed) || parsed < 0 ? undefined : parsed;
     setPlans(next);
   };
 
@@ -356,7 +369,7 @@ export default function MealPlannerApp() {
   return (
     <RoleGuard allowedRoles={["admin", "cook", "staff"]}>
       <div className="min-h-screen bg-[#f8f9fa] text-gray-800 pb-10">
-        <main className="max-w-7xl mx-auto px-4">
+        <main className="mx-auto max-w-[88rem]">
           {view === "list" ? (
             <>
               <div className="space-y-8">
@@ -413,9 +426,9 @@ export default function MealPlannerApp() {
                     <h2 className="text-lg font-black text-slate-800">Current Meal Plans</h2>
                   </div>
 
-                  <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="overflow-hidden rounded-[1.1rem] border border-[#d8e4db] bg-white shadow-sm">
                     <table className="w-full text-center">
-                      <thead className="bg-[#fff9c4] border-b text-[10px] font-bold uppercase text-slate-700">
+                      <thead className="border-b border-[#d8e4db] bg-[#eef6df] text-[10px] font-bold uppercase text-slate-700">
                         <tr>
                           <th className="p-4 border-r border-slate-200">Plan #</th>
                           <th className="p-4 border-r border-slate-200">Date Range</th>
@@ -466,14 +479,14 @@ export default function MealPlannerApp() {
                                     }}
                                     className={isAdmin ? "font-semibold text-slate-700 hover:text-black" : "font-semibold text-slate-700"}
                                   >
-                                    ₱{Number(plan.estimatedBudget ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    {formatCurrency(Number(plan.estimatedBudget ?? 0))}
                                   </button>
                                 )}
                               </td>
                               <td className="p-4 border-r border-slate-100 text-slate-500">{plan.createdByName || "System"}</td>
                               <td className="p-4">
                                 <div className="flex justify-center gap-3">
-                                  <button type="button" onClick={() => router.push(`/meal-plan/${plan.id}`)} className="text-slate-600 hover:text-blue-700">
+                                  <button type="button" onClick={() => setPreviewPlan(plan)} className="text-slate-600 hover:text-blue-700">
                                     <Eye className="w-5 h-5" />
                                   </button>
                                   {(isAdmin || isCook) && (
@@ -528,9 +541,9 @@ export default function MealPlannerApp() {
                     <h2 className="text-lg font-black text-slate-800">Past Meal Plans</h2>
                   </div>
 
-                  <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="overflow-hidden rounded-[1.1rem] border border-[#d8e4db] bg-white shadow-sm">
                     <table className="w-full text-center">
-                      <thead className="bg-slate-50 border-b text-[10px] font-bold uppercase text-slate-700">
+                      <thead className="border-b border-[#d8e4db] bg-[#f4efe4] text-[10px] font-bold uppercase text-slate-700">
                         <tr>
                           <th className="p-4 border-r border-slate-200">Plan #</th>
                           <th className="p-4 border-r border-slate-200">Date Range</th>
@@ -554,10 +567,10 @@ export default function MealPlannerApp() {
                                   {formatStatus(plan.status)}
                                 </span>
                               </td>
-                              <td className="p-4 border-r border-slate-100">₱{Number(plan.estimatedBudget ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                              <td className="p-4 border-r border-slate-100">{formatCurrency(Number(plan.estimatedBudget ?? 0))}</td>
                               <td className="p-4">
                                 <div className="flex justify-center gap-3">
-                                  <button type="button" onClick={() => router.push(`/meal-plan/${plan.id}`)} className="text-slate-600 hover:text-blue-700">
+                                  <button type="button" onClick={() => setPreviewPlan(plan)} className="text-slate-600 hover:text-blue-700">
                                     <Eye className="w-5 h-5" />
                                   </button>
                                   <button type="button" onClick={() => router.push(`/meal-plan/${plan.id}?tab=checklist`)} className="text-slate-600 hover:text-green-700">
@@ -589,16 +602,6 @@ export default function MealPlannerApp() {
               <div className="space-y-8">
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
                   <div>
-                    <button
-                      onClick={() => {
-                        setEditingPlanId(null);
-                        setView("list");
-                      }}
-                      className="mb-4 inline-flex items-center gap-2 text-sm font-bold text-slate-600 hover:text-black"
-                    >
-                      <CalendarDays className="w-4 h-4" />
-                      Back to planner dashboard
-                    </button>
                     <h1 className="text-3xl font-black uppercase tracking-tight">
                       {editingPlanId ? "Edit Meal Plan" : "Weekly Meal Planner"}
                     </h1>
@@ -610,22 +613,22 @@ export default function MealPlannerApp() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-full lg:min-w-[420px]">
-                    <div className="rounded-2xl bg-white border border-slate-100 p-4">
+                    <div className="rounded-xl bg-white border border-slate-100 p-4">
                       <p className="text-xs uppercase font-bold text-slate-500">Estimated Budget</p>
-                      <p className="text-2xl font-black text-[#2b982b] mt-2">₱{totalBudget.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                      <p className="text-2xl font-black text-[#2b982b] mt-2">{formatCurrency(totalBudget)}</p>
                     </div>
-                    <div className="rounded-2xl bg-white border border-slate-100 p-4">
+                    <div className="rounded-xl bg-white border border-slate-100 p-4">
                       <p className="text-xs uppercase font-bold text-slate-500">Planned Dishes</p>
                       <p className="text-2xl font-black mt-2">{totalMealsPlanned}</p>
                     </div>
-                    <div className="rounded-2xl bg-white border border-slate-100 p-4">
+                    <div className="rounded-xl bg-white border border-slate-100 p-4">
                       <p className="text-xs uppercase font-bold text-slate-500">Submission State</p>
                       <p className="text-2xl font-black mt-2">{isCook ? "Pending" : "Approved"}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 rounded-xl border border-[#d8e4db] bg-white p-6 md:grid-cols-2 xl:grid-cols-4">
                   <label className="flex flex-col gap-2">
                     <span className="text-xs font-black uppercase tracking-wide">From</span>
                     <input
@@ -644,17 +647,17 @@ export default function MealPlannerApp() {
                       className="border border-slate-200 rounded-lg px-3 py-2"
                     />
                   </label>
-                  <div className="md:col-span-2 rounded-xl bg-[#f8fafc] border border-slate-200 p-4">
+                  <div className="md:col-span-2 rounded-lg border border-[#d8e4db] bg-[#f5f7ef] p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-slate-500">Planner Notes</p>
                     <p className="text-sm text-slate-600 mt-2">
-                      Breakfast, lunch, and snack items are pulled directly from the meal directory. Admin can review, edit, and approve submissions based on estimated cost.
+                      Set servings and optionally enter a manual cost per serving so the published food menu shows the final approved amount.
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-6">
                   {plans.map((plan, planIndex) => (
-                    <div key={plan.isoDate || `${plan.dayName}-${plan.date}-${planIndex}`} className="border border-slate-300 rounded-2xl bg-white p-5">
+                    <div key={plan.isoDate || `${plan.dayName}-${plan.date}-${planIndex}`} className="rounded-xl border border-[#d8e4db] bg-white p-5">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
                         <div>
                           <h2 className="font-black uppercase">{plan.dayName} ({plan.date})</h2>
@@ -677,7 +680,7 @@ export default function MealPlannerApp() {
                       </div>
 
                       {plan.isHoliday ? (
-                        <div className="p-6 text-center text-slate-400 border border-dashed border-slate-300 rounded-xl">No Daily Meal Plan</div>
+                        <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-slate-400">No Daily Meal Plan</div>
                       ) : (
                         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                           {MEAL_TYPES.map((mealType) => {
@@ -685,7 +688,7 @@ export default function MealPlannerApp() {
                             const mealItems = plan.meals[mealType].items;
 
                             return (
-                              <div key={mealType} className="border border-slate-200 rounded-xl p-4 bg-slate-50/60">
+                              <div key={mealType} className="rounded-lg border border-[#d8e4db] bg-[#f9fbf5] p-4">
                                 <div className="flex items-start justify-between gap-3 mb-3">
                                   <div>
                                     <h3 className="font-black tracking-tight">{mealType}</h3>
@@ -723,7 +726,7 @@ export default function MealPlannerApp() {
                                       recipeOptions[0]?.id;
 
                                     return (
-                                      <div key={item.id} className="rounded-xl bg-white border border-slate-200 p-3 space-y-3">
+                                      <div key={item.id} className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
                                         <div className="flex items-start justify-between gap-3">
                                           <select
                                             className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
@@ -745,7 +748,7 @@ export default function MealPlannerApp() {
                                           </button>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-3 text-xs">
+                                        <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
                                           <label className="flex flex-col gap-1">
                                             <span className="font-bold uppercase text-slate-500">Servings</span>
                                             <input
@@ -760,13 +763,28 @@ export default function MealPlannerApp() {
                                             <p className="font-bold uppercase text-slate-500">Default Batch</p>
                                             <p className="text-sm font-semibold mt-1">{item.basePax ?? item.pax} pax</p>
                                           </div>
+                                          <label className="flex flex-col gap-1">
+                                            <span className="font-bold uppercase text-slate-500">Manual Cost / Serving</span>
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              step="0.01"
+                                              value={item.manualCostPerServing ?? ""}
+                                              onChange={(e) => handleManualCostChange(planIndex, mealType, itemIndex, e.target.value)}
+                                              placeholder="Optional"
+                                              className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                                            />
+                                          </label>
                                         </div>
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                                          Published menu amount: {item.manualCostPerServing ? formatCurrency(item.manualCostPerServing) : "Uses computed estimate"}
+                                        </p>
                                       </div>
                                     );
                                   })}
                                 </div>
 
-                                <div className="mt-4 p-2 bg-blue-500 text-white rounded-lg text-center font-black text-xs">
+                                <div className="mt-4 rounded-lg bg-[#2f6f4f] p-2 text-center text-xs font-black text-white">
                                   Total Servings: {mealItems.reduce((acc, item) => acc + item.pax, 0)} pax
                                 </div>
                               </div>
@@ -792,6 +810,13 @@ export default function MealPlannerApp() {
             </>
           )}
         </main>
+        <MealPlanPreviewDialog
+          open={Boolean(previewPlan)}
+          onOpenChange={(open) => {
+            if (!open) setPreviewPlan(null);
+          }}
+          plan={previewPlan}
+        />
       </div>
     </RoleGuard>
   );

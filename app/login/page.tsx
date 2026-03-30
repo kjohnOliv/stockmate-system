@@ -43,6 +43,15 @@ export default function LoginPage() {
       }
 
       const userData = data.data;
+      const authToken =
+        userData?.token ??
+        userData?.access_token ??
+        userData?.accessToken ??
+        userData?.jwt ??
+        data?.token ??
+        data?.access_token ??
+        data?.accessToken ??
+        data?.jwt;
 
       // Validate account status before proceeding
       if (!userData.is_active) throw new Error("ACCOUNT DEACTIVATED.");
@@ -60,7 +69,8 @@ export default function LoginPage() {
         email: userData.email,
         role: userData.role,
         status: userData.status,
-        is_active: userData.is_active
+        is_active: userData.is_active,
+        token: authToken,
       });
 
       router.replace("/dashboard");

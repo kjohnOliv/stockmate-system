@@ -127,3 +127,8 @@
     @apply font-sans;
   }
 }
+
+body.app-modal-open [data-app-sidebar="true"] {
+  filter: blur(10px);
+  opacity: 0.78;
+}

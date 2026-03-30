@@ -11,7 +11,6 @@ export default function RegisterPage() {
     username: "",
     full_name: "",
     email: "",
-    password: "",
     contact_number: "",
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -31,6 +30,7 @@ export default function RegisterPage() {
     try {
       const response = await ApiClient.post("/auth/register", {
         ...formData,
+        email: formData.email.trim().toLowerCase(),
         role: "user", // Default role
         status: "pending" // Default status for admin approval
       });
@@ -123,17 +123,9 @@ export default function RegisterPage() {
               onChange={handleChange} 
             />
           </div>
-          
-          {/* Password */}
-          <div className="md:col-span-2">
-            <input 
-              name="password" 
-              type="password" 
-              placeholder="PASSWORD" 
-              required 
-              className="w-full p-4 rounded-2xl border border-slate-200 font-bold outline-none focus:border-[#6BCB3B]"
-              onChange={handleChange} 
-            />
+
+          <div className="md:col-span-2 rounded-2xl border border-[#d9ebcd] bg-[#f5fbef] px-4 py-3 text-xs font-bold text-slate-600">
+            After admin approval, you will log in using the temporary password <span className="text-[#2f6f4f]">stockmate123</span> and then change it to your own password.
           </div>
 
           <button 
@@ -173,7 +165,7 @@ export default function RegisterPage() {
             </div>
             <h2 className="text-2xl font-black text-slate-800">Waiting for Admin Approval</h2>
             <p className="text-slate-500 mt-3">
-              Your account has been created successfully. An admin needs to approve it before you can access the system.
+              Your account has been created successfully. Once an admin approves it, you can log in using the temporary password <span className="font-bold text-slate-700">stockmate123</span> and change it right away.
             </p>
             <button
               onClick={() => {

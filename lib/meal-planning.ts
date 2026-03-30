@@ -32,6 +32,7 @@ export interface PlannedMealItem {
   allergens?: string;
   price?: number;
   ingredients?: RecipeIngredient[];
+  manualCostPerServing?: number;
 }
 
 export interface MealCategoryPlan {
@@ -218,6 +219,7 @@ export function buildPlannedMealItem(recipe: PlannerRecipe): PlannedMealItem {
     allergens: recipe.allergens,
     price: recipe.price,
     ingredients: recipe.ingredients,
+    manualCostPerServing: undefined,
   };
 }
 
@@ -234,6 +236,11 @@ export function estimateItemCost(item: PlannedMealItem) {
 }
 
 export function estimateItemPerPersonCost(item: PlannedMealItem) {
+  const manualCost = Number(item.manualCostPerServing ?? 0);
+  if (manualCost > 0) {
+    return manualCost;
+  }
+
   const totalCost = estimateItemCost(item);
   if (totalCost > 0 && item.pax > 0) {
     return totalCost / item.pax;

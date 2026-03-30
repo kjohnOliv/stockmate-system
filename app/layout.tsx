@@ -70,8 +70,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ? mealPlansData
             : [];
 
-          const count = plans.filter((p: any) => {
-            const status = (p.status || "").toString().toLowerCase();
+          const count = plans.filter((p: Record<string, unknown>) => {
+            const status = String(p.status || "").toLowerCase();
             return status === "pending" || status === "awaiting" || status === "submitted";
           }).length;
 
@@ -114,7 +114,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 lowStockCount={lowStockCount}
               />
             )}
-            <main className="flex-1 flex flex-col min-w-0 min-h-screen">
+            <main className={cn("flex-1 flex flex-col min-w-0 min-h-screen", !hideSidebar && "lg:pl-72")}>
               {!hideSidebar && (
                 <AppTopbar
                   onOpenSidebar={() => setIsSidebarOpen(true)}
@@ -124,7 +124,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   activePlanStatus={activePlanStatus}
                 />
               )}
-              <div className={cn("flex-1 overflow-x-hidden", !hideSidebar ? 'p-4 md:p-8' : 'p-0')}>
+              <div className={cn("flex-1 overflow-x-hidden", !hideSidebar ? "px-3 py-3 md:px-5 md:py-5 lg:px-6 lg:py-6" : "p-0")}>
                 {children}
               </div>
             </main>

@@ -1,10 +1,28 @@
 const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/+$/, "");
+const USE_CREDENTIALS = process.env.NEXT_PUBLIC_API_USE_CREDENTIALS === "true";
 
 function buildUrl(path: string) {
   if (!path.startsWith("/")) {
     path = "/" + path;
   }
   return `${BASE_URL}${path}`;
+}
+
+function resolveCredentials(provided?: RequestCredentials): RequestCredentials | undefined {
+  if (provided) return provided;
+  if (typeof window === "undefined") return undefined;
+
+  try {
+    const target = new URL(BASE_URL);
+    const current = new URL(window.location.origin);
+    const isSameOrigin = target.origin === current.origin;
+
+    if (isSameOrigin) return "same-origin";
+    if (USE_CREDENTIALS) return "include";
+    return "omit";
+  } catch {
+    return undefined;
+  }
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -20,10 +38,8 @@ function getAuthHeaders(): Record<string, string> {
         const parsed = JSON.parse(user);
         if (parsed.token) {
           headers.Authorization = `Bearer ${parsed.token}`;
-        } else if (parsed.id && parsed.email) {
-          headers.Authorization = "Bearer local-session";
         }
-      } catch (e) {
+      } catch {
         // Failed to parse user, silence error
       }
     }
@@ -65,7 +81,7 @@ async function handleResponse(response: Response) {
     try {
       const data = await response.json();
       errorMessage = data.message || data.error || errorMessage;
-    } catch (e) {
+    } catch {
       // Could not parse error response, use status code
     }
     throw new Error(errorMessage);
@@ -76,12 +92,18 @@ async function handleResponse(response: Response) {
 
 export const ApiClient = {
   get: (path: string, init?: RequestInit) =>
-    fetch(buildUrl(path), { method: "GET", ...init, headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers) })
+    fetch(buildUrl(path), {
+      method: "GET",
+      credentials: resolveCredentials(init?.credentials),
+      ...init,
+      headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers),
+    })
       .then(handleResponse),
 
   post: (path: string, body?: unknown, init?: RequestInit) =>
     fetch(buildUrl(path), {
       method: "POST",
+      credentials: resolveCredentials(init?.credentials),
       headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       ...init,
@@ -91,6 +113,7 @@ export const ApiClient = {
   put: (path: string, body?: unknown, init?: RequestInit) =>
     fetch(buildUrl(path), {
       method: "PUT",
+      credentials: resolveCredentials(init?.credentials),
       headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       ...init,
@@ -100,6 +123,7 @@ export const ApiClient = {
   patch: (path: string, body?: unknown, init?: RequestInit) =>
     fetch(buildUrl(path), {
       method: "PATCH",
+      credentials: resolveCredentials(init?.credentials),
       headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       ...init,
@@ -107,6 +131,11 @@ export const ApiClient = {
       .then(handleResponse),
 
   delete: (path: string, init?: RequestInit) =>
-    fetch(buildUrl(path), { method: "DELETE", ...init, headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers) })
+    fetch(buildUrl(path), {
+      method: "DELETE",
+      credentials: resolveCredentials(init?.credentials),
+      ...init,
+      headers: mergeHeaders({ "Content-Type": "application/json" }, init?.headers),
+    })
       .then(handleResponse),
 };

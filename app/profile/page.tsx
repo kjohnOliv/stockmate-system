@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { ApiClient } from "@/lib/api";
+import { useBodyModalState } from "@/hooks/useBodyModalState";
 import { 
   Loader2, Pencil, User, Mail,
   Shield, CheckCircle, AlertCircle, Lock, Save, X
@@ -30,18 +31,9 @@ export default function ProfilePage() {
   const [editData, setEditData] = useState({ full_name: "", contact_number: "" });
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    if (!user) {
-      setError("No user session found. Please log in again.");
-      setLoading(false);
-      return;
-    }
+  useBodyModalState(isEditing);
 
-    // Fetch full profile from backend
-    fetchProfile();
-  }, [user]);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     if (!user?.id) return;
     try {
       setLoading(true);
@@ -64,7 +56,17 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) {
+      setError("No user session found. Please log in again.");
+      setLoading(false);
+      return;
+    }
+
+    fetchProfile();
+  }, [user, fetchProfile]);
 
   const handleSaveProfile = async () => {
     if (!user?.id) return;
@@ -115,10 +117,10 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="mx-auto max-w-[72rem] px-2 py-3 animate-in fade-in slide-in-from-bottom-4 duration-700 md:px-3">
       {isEditing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-[32px] border border-slate-200 shadow-2xl w-full max-w-md p-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[1.25rem] border border-slate-200 bg-white p-8 shadow-2xl">
             <h2 className="text-2xl font-black text-gray-900 mb-6">Edit Profile</h2>
             
             <div className="space-y-4">
@@ -177,7 +179,7 @@ export default function ProfilePage() {
       </header>
 
       {/* Profile Table Information */}
-      <div className="bg-white border-2 border-slate-100 rounded-[32px] overflow-hidden shadow-sm mb-10">
+      <div className="mb-8 overflow-hidden rounded-[1.1rem] border-2 border-slate-100 bg-white shadow-sm">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50/50 border-b-2 border-slate-100">
@@ -235,14 +237,17 @@ export default function ProfilePage() {
       </div>
 
       {/* Security Section */}
-      <div className="bg-white border-2 border-slate-100 rounded-[32px] p-8 shadow-sm relative overflow-hidden">
+      <div className="relative overflow-hidden rounded-[1.1rem] border-2 border-slate-100 bg-white p-8 shadow-sm">
         <div className="absolute top-0 left-0 w-2 h-full bg-gray-900"></div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h2 className="text-xl font-black text-gray-900 mb-1">Security & Password</h2>
             <p className="text-sm text-gray-500">Last updated password: 1 month ago</p>
           </div>
-          <button className="bg-black text-white px-8 py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-3 hover:bg-gray-800 transition-all active:scale-95">
+          <button
+            onClick={() => router.push("/forgot-password")}
+            className="flex items-center justify-center gap-3 rounded-xl bg-black px-8 py-4 text-sm font-black text-white transition-all hover:bg-gray-800 active:scale-95"
+          >
             <Lock size={18} /> Change Password
           </button>
         </div>

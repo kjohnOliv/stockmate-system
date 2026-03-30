@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -32,6 +32,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [isBodyModalOpen, setIsBodyModalOpen] = useState(false);
   
   // These now exist because we updated the AuthContext above
   const { logout, isAdmin, isCook } = useAuth();
@@ -79,6 +80,19 @@ export default function Sidebar({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    const syncModalState = () => {
+      setIsBodyModalOpen(document.body.classList.contains("app-modal-open"));
+    };
+
+    syncModalState();
+
+    const observer = new MutationObserver(syncModalState);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+    return () => observer.disconnect();
+  }, []);
+
   const handleLogout = () => {
     if (window.confirm("Are you sure you want to logout?")) {
       logout();
@@ -97,12 +111,15 @@ export default function Sidebar({
       )}
 
       {/* Main Sidebar Panel */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-[70] w-72 bg-white flex flex-col p-6 border-r border-slate-200 transition-transform duration-300 ease-in-out shadow-xl lg:shadow-none
-        lg:static lg:translate-x-0 lg:h-screen
+      <aside
+        data-app-sidebar="true"
+        className={`
+        fixed inset-y-0 left-0 z-[70] w-72 bg-white/95 flex flex-col p-6 border-r border-slate-200 transition-all duration-300 ease-in-out shadow-xl backdrop-blur-md
+        lg:translate-x-0 lg:h-screen
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
-      `}>
-        
+        ${isBodyModalOpen ? "pointer-events-none" : ""}
+      `}
+      >
         {/* Logo & Mobile Close Button */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

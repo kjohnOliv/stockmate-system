@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Calendar, Utensils } from 'lucide-react';
-import { estimateItemPerPersonCost, RecipeIngredient } from "@/lib/meal-planning";
+import { estimateItemPerPersonCost, PlannedMealItem, RecipeIngredient } from "@/lib/meal-planning";
 
 interface MealItem {
   id?: string;
@@ -13,6 +13,7 @@ interface MealItem {
   allergens?: string;
   ingredients?: RecipeIngredient[];
   perPersonPrice?: number;
+  manualCostPerServing?: number;
 }
 
 interface MealCategory {
@@ -44,20 +45,19 @@ export default function StudentActiveMenu() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchActiveMenu();
-  }, []);
+  const formatCurrency = (value: number) =>
+    `PHP ${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-  const normalizeIsoDate = (value?: string) => {
+  const normalizeIsoDate = useCallback((value?: string) => {
     if (!value) return "";
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return "";
     return parsed.toISOString().slice(0, 10);
-  };
+  }, []);
 
-  const getTodayKey = () => new Date().toISOString().slice(0, 10);
+  const getTodayKey = useCallback(() => new Date().toISOString().slice(0, 10), []);
 
-  const findTodayPlan = (planData: DayPlan[]) => {
+  const findTodayPlan = useCallback((planData: DayPlan[]) => {
     const todayKey = getTodayKey();
 
     return (
@@ -65,9 +65,9 @@ export default function StudentActiveMenu() {
       planData.find((day) => normalizeIsoDate(day.date) === todayKey) ??
       null
     );
-  };
+  }, [getTodayKey, normalizeIsoDate]);
 
-  const fetchActiveMenu = async () => {
+  const fetchActiveMenu = useCallback(async () => {
     try {
       setLoading(true);
       const baseUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/+$/, "");
@@ -154,62 +154,34 @@ export default function StudentActiveMenu() {
           recipeList.map((recipe) => [recipe.name.trim().toLowerCase(), recipe])
         );
 
+        const enrichItem = (item: MealItem) => {
+          const recipe = recipesByName.get(item.name.trim().toLowerCase());
+          const completeItem: PlannedMealItem = {
+            ...item,
+            id: item.id ?? `student-menu-${item.name}-${item.pax}`,
+            basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
+            price: item.price ?? Number(recipe?.price ?? 0),
+            allergens: item.allergens ?? String(recipe?.allergens ?? ""),
+            ingredients: item.ingredients ?? recipe?.ingredients,
+          };
+
+          return {
+            ...completeItem,
+            perPersonPrice: estimateItemPerPersonCost(completeItem),
+          };
+        };
+
         const enrichedToday: DayPlan = {
           ...today,
           meals: {
             Breakfast: {
-              items: today.meals.Breakfast.items.map((item) => {
-                const recipe = recipesByName.get(item.name.trim().toLowerCase());
-                return {
-                  ...item,
-                  basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-                  price: item.price ?? Number(recipe?.price ?? 0),
-                  allergens: item.allergens ?? String(recipe?.allergens ?? ""),
-                  ingredients: item.ingredients ?? recipe?.ingredients,
-                  perPersonPrice: estimateItemPerPersonCost({
-                    ...item,
-                    basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-                    price: item.price ?? Number(recipe?.price ?? 0),
-                    ingredients: item.ingredients ?? recipe?.ingredients,
-                  }),
-                };
-              }),
+              items: today.meals.Breakfast.items.map(enrichItem),
             },
             Lunch: {
-              items: today.meals.Lunch.items.map((item) => {
-                const recipe = recipesByName.get(item.name.trim().toLowerCase());
-                return {
-                  ...item,
-                  basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-                  price: item.price ?? Number(recipe?.price ?? 0),
-                  allergens: item.allergens ?? String(recipe?.allergens ?? ""),
-                  ingredients: item.ingredients ?? recipe?.ingredients,
-                  perPersonPrice: estimateItemPerPersonCost({
-                    ...item,
-                    basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-                    price: item.price ?? Number(recipe?.price ?? 0),
-                    ingredients: item.ingredients ?? recipe?.ingredients,
-                  }),
-                };
-              }),
+              items: today.meals.Lunch.items.map(enrichItem),
             },
             Snack: {
-              items: today.meals.Snack.items.map((item) => {
-                const recipe = recipesByName.get(item.name.trim().toLowerCase());
-                return {
-                  ...item,
-                  basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-                  price: item.price ?? Number(recipe?.price ?? 0),
-                  allergens: item.allergens ?? String(recipe?.allergens ?? ""),
-                  ingredients: item.ingredients ?? recipe?.ingredients,
-                  perPersonPrice: estimateItemPerPersonCost({
-                    ...item,
-                    basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-                    price: item.price ?? Number(recipe?.price ?? 0),
-                    ingredients: item.ingredients ?? recipe?.ingredients,
-                  }),
-                };
-              }),
+              items: today.meals.Snack.items.map(enrichItem),
             },
           },
         };
@@ -227,14 +199,18 @@ export default function StudentActiveMenu() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [findTodayPlan]);
+
+  useEffect(() => {
+    fetchActiveMenu();
+  }, [fetchActiveMenu]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-pulse flex flex-col items-center">
           <Utensils className="w-12 h-12 text-blue-500 mb-4" />
-          <p className="text-gray-500 font-medium">Loading today's menu...</p>
+          <p className="text-gray-500 font-medium">Loading today&apos;s menu...</p>
         </div>
       </div>
     );
@@ -249,7 +225,7 @@ export default function StudentActiveMenu() {
             {error ? error : "No Menu Published"}
           </h2>
           <p className="text-gray-500">
-            {error ? "Check the current approved meal plan or try again later." : "Check back later for today's meal schedule."}
+            {error ? "Check the current approved meal plan or try again later." : "Check back later for today&apos;s meal schedule."}
           </p>
         </div>
       </div>
@@ -257,17 +233,17 @@ export default function StudentActiveMenu() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f4e4] py-6 px-4 md:px-8">
-      <div className="max-w-6xl mx-auto rounded-[2rem] border border-[#efe0a2] bg-[#fffbe0] px-6 py-8 md:px-12 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7df,_#eef5e8_52%,_#e4efe7)] py-6 px-3 md:px-5">
+      <div className="mx-auto max-w-7xl rounded-[1.5rem] border border-[#d8e4db] bg-[linear-gradient(180deg,_rgba(255,255,255,0.96),_rgba(249,251,245,0.92))] px-5 py-7 shadow-[0_20px_60px_rgba(15,23,42,0.08)] md:px-8">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center bg-[#76ba53] px-8 py-2 text-white font-black rounded-full shadow-sm">
+          <div className="inline-flex items-center justify-center rounded-full bg-[#2f6f4f] px-8 py-2 text-white font-black shadow-sm">
             {todayPlan.date || new Date().toLocaleDateString()}
           </div>
-          <h1 className="mt-4 text-4xl md:text-6xl font-black uppercase tracking-tight text-black">Food Menu</h1>
+          <h1 className="mt-4 text-4xl font-black uppercase tracking-tight text-slate-900 md:text-6xl">Food Menu</h1>
         </div>
 
         {todayPlan.isHoliday ? (
-          <div className="rounded-[2rem] border border-dashed border-[#d38b54] bg-white/70 p-10 text-center">
+          <div className="rounded-[1.25rem] border border-dashed border-[#c98d52] bg-white/70 p-10 text-center">
             <p className="text-2xl font-black uppercase text-[#d38b54]">No meal service today</p>
           </div>
         ) : (
@@ -280,30 +256,32 @@ export default function StudentActiveMenu() {
               const items = todayPlan.meals[key].items;
 
               return (
-                <section key={key} className="relative rounded-[1.75rem] border border-[#d38b54] bg-[#fffde9] px-5 pb-6 pt-12 min-h-[420px]">
-                  <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[#ffd34a] px-8 py-3 text-sm font-black uppercase shadow-sm">
+                <section key={key} className="relative min-h-[420px] rounded-[1.15rem] border border-[#d8e4db] bg-white/90 px-5 pb-6 pt-12 shadow-sm">
+                  <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#f0c95a] px-8 py-3 text-sm font-black uppercase text-slate-900 shadow-sm">
                     {label}
                   </div>
 
                   <div className="space-y-5">
                     {items.length > 0 ? (
                       items.map((item, index) => (
-                        <div key={`${key}-${index}-${item.name}`} className="border-b border-black/70 pb-3 last:border-b-0">
+                        <div key={`${key}-${index}-${item.name}`} className="border-b border-slate-200 pb-3 last:border-b-0">
                           <div className="flex items-start justify-between gap-4">
                             <div>
-                              <p className="text-xl font-black lowercase leading-tight text-black">{item.name}</p>
+                              <p className="text-xl font-black leading-tight text-slate-900">{item.name}</p>
                               {item.allergens && (
-                                <p className="mt-1 text-sm italic text-black/80">Allergens: {item.allergens}</p>
+                                <p className="mt-1 text-sm italic text-slate-600">Allergens: {item.allergens}</p>
                               )}
                               <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-500">
                                 {item.pax} servings planned
                               </p>
                             </div>
-                            <p className="text-2xl font-black text-black">
-                              ₱{Number(item.perPersonPrice ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            <p className="text-2xl font-black text-[#2f6f4f]">
+                              {formatCurrency(Number(item.perPersonPrice ?? 0))}
                             </p>
                           </div>
-                          <p className="mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">Per person</p>
+                          <p className="mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                            {item.manualCostPerServing ? "Published amount" : "Per person"}
+                          </p>
                         </div>
                       ))
                     ) : (
