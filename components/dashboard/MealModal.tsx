@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { X, Trash2, PlusCircle } from 'lucide-react';
+import { Trash2, PlusCircle } from 'lucide-react';
 // Corrected imports - Ensure these are installed via: 
 // npx shadcn-ui@latest add dialog button input label
 import {
@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AppSelect } from "@/components/ui/app-select";
 
 interface Ingredient {
   inventoryId: number | null;
@@ -56,7 +57,7 @@ export default function MealModal({
   setIsNewIngModalOpen
 }: MealModalProps) {
 
-  const handleIngredientChange = (idx: number, field: keyof Ingredient, value: any) => {
+  const handleIngredientChange = (idx: number, field: keyof Ingredient, value: number) => {
     const updatedIngs = [...formData.ingredients];
     updatedIngs[idx] = { ...updatedIngs[idx], [field]: value };
     setFormData({ ...formData, ingredients: updatedIngs });
@@ -99,15 +100,16 @@ export default function MealModal({
             </div>
             <div className="space-y-2">
               <Label className="font-black text-[10px] uppercase">Category</Label>
-              <select 
-                className="w-full border-2 border-black p-2 rounded-md font-bold h-10"
+              <AppSelect
                 value={formData.category}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormData({...formData, category: e.target.value})}
-              >
-                <option>Breakfast</option>
-                <option>Lunch</option>
-                <option>Dinner</option>
-              </select>
+                onValueChange={(value) => setFormData({ ...formData, category: value })}
+                className="h-10 w-full rounded-md border-2 border-black px-3 py-2 font-bold"
+                options={[
+                  { label: "Breakfast", value: "Breakfast" },
+                  { label: "Lunch", value: "Lunch" },
+                  { label: "Dinner", value: "Dinner" },
+                ]}
+              />
             </div>
           </div>
 
@@ -125,16 +127,16 @@ export default function MealModal({
 
             {formData.ingredients.map((ing, idx) => (
               <div key={idx} className="flex gap-2 items-center bg-slate-50 p-2 rounded-2xl border-2 border-slate-100">
-                <select 
-                  className="flex-1 bg-transparent px-2 py-2 font-bold outline-none"
-                  value={ing.inventoryId || ""}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleSelectInventory(idx, e.target.value)}
-                >
-                  <option value="">Select Item</option>
-                  {inventory.map(item => (
-                    <option key={item.id} value={item.id}>{item.item}</option>
-                  ))}
-                </select>
+                <AppSelect
+                  value={String(ing.inventoryId || "")}
+                  onValueChange={(value) => handleSelectInventory(idx, value)}
+                  className="flex-1 border-0 bg-transparent px-2 py-2 font-bold shadow-none"
+                  placeholder="Select Item"
+                  options={[
+                    { label: "Select Item", value: "" },
+                    ...inventory.map((item) => ({ label: item.item, value: String(item.id) })),
+                  ]}
+                />
 
                 <Input 
                   type="number"

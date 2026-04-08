@@ -2,16 +2,21 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-export type UserRole = 'admin' | 'cook' | 'staff';
+export type UserRole = 'admin' | 'cook' | 'staff' | 'user';
 
 export type User = {
   id: number; // Changed to number to match PostgreSQL Serial
   username: string;
   full_name: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
   email: string;
   role: UserRole;
+  requested_role?: string;
   status: string;
   is_active: boolean;
+  must_change_password?: boolean;
   contact_number?: string;
   token?: string; // JWT token for API authentication
 };
@@ -42,7 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         // Simple session validation - check if user data is complete
         if (parsedUser.id && parsedUser.email) {
-          setUser(parsedUser);
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setUser({
+            ...parsedUser,
+            must_change_password: Boolean(parsedUser.must_change_password),
+          });
         } else {
           // Invalid user data, clear storage
           localStorage.removeItem('stockmate_user');
@@ -61,10 +70,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id: userData.id,
       username: userData.username,
       full_name: userData.full_name,
+      first_name: userData.first_name,
+      middle_name: userData.middle_name,
+      last_name: userData.last_name,
       email: userData.email,
       role: userData.role,
+      requested_role: userData.requested_role,
       status: userData.status,
       is_active: userData.is_active,
+      must_change_password: Boolean(userData.must_change_password),
       contact_number: userData.contact_number,
       token: userData.token, // Store token if provided
     };

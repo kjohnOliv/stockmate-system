@@ -1,5 +1,6 @@
 import { ApiClient } from "@/lib/api";
 import { useState, useEffect } from "react";
+import { AppSelect } from "@/components/ui/app-select";
 
 interface MealPlan {
   id: number;
@@ -121,19 +122,17 @@ export default function CookView({ stats }: CookViewProps) {
           </div>
 
           <div className="flex gap-3 mb-4">
-            <select
-              className="rounded-xl border-2 border-slate-300 px-4 py-2"
+            <AppSelect
               value={planFilter}
-              onChange={(e) => {
-                const value = e.target.value as "All" | MealPlan["status"];
-                setPlanFilter(value);
-              }}
-            >
-              <option value="All">All Status</option>
-              <option value="PENDING">Pending</option>
-              <option value="ONGOING">Ongoing</option>
-              <option value="DONE">Done</option>
-            </select>
+              onValueChange={(value) => setPlanFilter(value as "All" | MealPlan["status"])}
+              className="min-w-[180px] rounded-xl px-4 py-2"
+              options={[
+                { label: "All Status", value: "All" },
+                { label: "Pending", value: "PENDING" },
+                { label: "Ongoing", value: "ONGOING" },
+                { label: "Done", value: "DONE" },
+              ]}
+            />
           </div>
 
           <div className="overflow-x-auto">

@@ -15,7 +15,7 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import RoleGuard from "@/components/auth/RoleGuard";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient } from "@/lib/api";
+import { ApiClient, isPasswordChangeRequiredErrorMessage } from "@/lib/api";
 import {
   DayPlan,
   estimateItemCost,
@@ -23,7 +23,9 @@ import {
   MealPlanRecord,
   normalizeMealPlanRecords,
   normalizePlanStatus,
+  normalizeRecipes,
   PlannedMealItem,
+  syncMealPlanRecordsWithRecipes,
 } from "@/lib/meal-planning";
 
 interface InventoryItem {
@@ -184,7 +186,7 @@ export default function MealPlanDetailView() {
   const router = useRouter();
   const params = useParams<{ id?: string | string[] }>();
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id;
-  const { isStaff } = useAuth();
+  const { isAdmin, isStaff } = useAuth();
 
   const [activeTab, setActiveTab] = useState<"schedule" | "checklist">(
     (searchParams.get("tab") as "schedule" | "checklist") || "schedule"
@@ -192,6 +194,22 @@ export default function MealPlanDetailView() {
   const [planRecord, setPlanRecord] = useState<MealPlanRecord | null>(null);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState("");
+  const [isSavingBudget, setIsSavingBudget] = useState(false);
+  const [checklistOverrides, setChecklistOverrides] = useState<Record<string, ChecklistRow["status"]>>({});
+
+  const formatCurrency = (value: number) =>
+    `PHP ${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+  const goBackToPlanner = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.push("/meal-plan");
+  };
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -204,16 +222,35 @@ export default function MealPlanDetailView() {
     const loadData = async () => {
       setIsLoading(true);
       try {
-        const [planResponse, inventoryResponse] = await Promise.all([
-          ApiClient.get("/api/meal-plans"),
+        const requests: Promise<Response>[] = [
+          ApiClient.get(isStaff ? "/api/meal-plans/active" : "/api/meal-plans"),
           ApiClient.get("/api/inventory"),
-        ]);
+        ];
+        if (!isStaff) requests.push(ApiClient.get("/api/recipes"));
+
+        const [planResponse, inventoryResponse, recipeResponse] = await Promise.all(requests);
 
         if (!planResponse.ok) throw new Error(`Meal plan request failed with ${planResponse.status}`);
 
         const planResult = await planResponse.json();
-        const planList = planResult?.success ? planResult.data : planResult?.data ?? planResult;
-        const records = normalizeMealPlanRecords(planList);
+        const planList = isStaff
+          ? planResult?.data
+            ? [planResult.data]
+            : Array.isArray(planResult)
+            ? planResult
+            : planResult
+            ? [planResult]
+            : []
+          : planResult?.success
+          ? planResult.data
+          : planResult?.data ?? planResult;
+        const recipeResult = recipeResponse?.ok ? await recipeResponse.json() : [];
+        const recipeList = recipeResult?.success ? recipeResult.data : recipeResult?.data ?? recipeResult;
+        const records = syncMealPlanRecordsWithRecipes(
+          normalizeMealPlanRecords(planList),
+          normalizeRecipes(recipeList)
+        );
+
         setPlanRecord(records.find((record) => String(record.id) === id) ?? null);
 
         if (inventoryResponse.ok) {
@@ -224,6 +261,7 @@ export default function MealPlanDetailView() {
           setInventoryItems([]);
         }
       } catch (error) {
+        if (error instanceof Error && isPasswordChangeRequiredErrorMessage(error.message)) return;
         console.error("Failed to load meal plan analytics", error);
         setPlanRecord(null);
         setInventoryItems([]);
@@ -233,12 +271,23 @@ export default function MealPlanDetailView() {
     };
 
     loadData();
-  }, [id]);
+  }, [id, isStaff]);
 
-  const checklist = useMemo(
-    () => buildChecklist(planRecord?.planData ?? [], inventoryItems),
-    [planRecord, inventoryItems]
-  );
+  useEffect(() => {
+    setBudgetDraft(planRecord?.estimatedBudget !== undefined ? String(planRecord.estimatedBudget) : "");
+    setEditingBudget(false);
+    setChecklistOverrides({});
+  }, [planRecord]);
+
+  const checklist = useMemo(() => {
+    const rows = buildChecklist(planRecord?.planData ?? [], inventoryItems);
+    return rows.map((row) => {
+      const key = `${normalizeText(row.item)}-${normalizeText(row.unit)}`;
+      const override = checklistOverrides[key];
+      return override ? { ...row, status: override } : row;
+    });
+  }, [checklistOverrides, inventoryItems, planRecord]);
+
   const analytics = useMemo(() => buildAnalytics(checklist), [checklist]);
   const totalServings = useMemo(() => getTotalServings(planRecord?.planData ?? []), [planRecord]);
   const mealItemAnalytics = useMemo(() => getMealItemAnalytics(planRecord?.planData ?? []), [planRecord]);
@@ -249,8 +298,48 @@ export default function MealPlanDetailView() {
   const isCurrentApprovedPlan = useMemo(() => {
     if (!planRecord) return false;
     const today = new Date().toISOString().slice(0, 10);
-    return normalizePlanStatus(planRecord.status) === "approved" && planRecord.dateFrom <= today && planRecord.dateTo >= today;
+    return (
+      normalizePlanStatus(planRecord.status) === "approved" &&
+      planRecord.dateFrom <= today &&
+      planRecord.dateTo >= today
+    );
   }, [planRecord]);
+  const displayedBudget = planRecord?.estimatedBudget ?? analytics.totalEstimatedCost;
+
+  const handleBudgetSave = async () => {
+    if (!planRecord) return;
+
+    const nextBudget = Number(budgetDraft);
+    if (!Number.isFinite(nextBudget) || nextBudget < 0) {
+      alert("Enter a valid estimated budget.");
+      return;
+    }
+
+    try {
+      setIsSavingBudget(true);
+      const response = await ApiClient.patch(`/api/meal-plans/${planRecord.id}`, {
+        estimated_budget: nextBudget,
+      });
+      if (!response.ok) throw new Error(`Budget update failed with ${response.status}`);
+
+      setPlanRecord((current) => (current ? { ...current, estimatedBudget: nextBudget } : current));
+      setEditingBudget(false);
+    } catch (error) {
+      console.error("Budget update failed", error);
+      alert("Budget update is not supported by the current backend endpoint yet.");
+    } finally {
+      setIsSavingBudget(false);
+    }
+  };
+
+  const toggleChecklistStatus = (item: ChecklistRow) => {
+    if (!isStaff) return;
+    const key = `${normalizeText(item.item)}-${normalizeText(item.unit)}`;
+    setChecklistOverrides((current) => ({
+      ...current,
+      [key]: item.status === "done" ? "pending" : "done",
+    }));
+  };
 
   if (!id) return <div className="p-8 font-black uppercase text-red-500">Error: Missing Plan ID</div>;
 
@@ -269,8 +358,9 @@ export default function MealPlanDetailView() {
           <h1 className="text-2xl font-black uppercase">Meal Plan Not Found</h1>
           <p className="text-slate-500 mt-3">The selected meal plan could not be loaded from the API.</p>
           <button
-            onClick={() => router.push("/meal-plan")}
-            className="mt-6 inline-flex items-center gap-2 bg-black text-white px-5 py-3 rounded-xl"
+            type="button"
+            onClick={goBackToPlanner}
+            className="mt-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
           >
             <ArrowLeft size={18} />
             Back to Meal Planner
@@ -282,272 +372,325 @@ export default function MealPlanDetailView() {
 
   return (
     <RoleGuard allowedRoles={["admin", "cook", "staff"]}>
-    <div className="min-h-screen bg-[#F3F4F6] p-4 md:p-8 font-sans text-slate-800">
-      <div className="max-w-7xl mx-auto">
-        {isStaff && !isCurrentApprovedPlan ? (
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-xl text-center">
-            <h1 className="text-2xl font-black uppercase text-slate-800">No Approved Current Plan</h1>
-            <p className="text-slate-500 mt-3">Staff can only view the currently approved meal plan and checklist.</p>
-            <button
-              onClick={() => router.push("/meal-plan")}
-              className="mt-6 inline-flex items-center gap-2 bg-black text-white px-5 py-3 rounded-xl"
-            >
-              <ArrowLeft size={18} />
-              Back to Meal Planner
-            </button>
-          </div>
-        ) : (
-          <div>
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div className="flex items-center gap-6">
-            <button
-              onClick={() => router.push("/meal-plan")}
-              className="bg-black text-white p-3 rounded-full shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            >
-              <ArrowLeft size={24} />
-            </button>
-            <div>
-              <h1 className="text-3xl font-black uppercase italic tracking-tighter leading-none">
-                Plan Details <span className="text-[#76ba53]">#{planRecord.id}</span>
-              </h1>
-              <p className="font-bold text-slate-500 uppercase text-[10px] tracking-widest mt-1">
-                {planRecord.dateFrom} - {planRecord.dateTo}
+      <div className="min-h-screen bg-[#F3F4F6] p-4 font-sans text-slate-800 md:p-8">
+        <div className="mx-auto max-w-7xl">
+          {isStaff && !isCurrentApprovedPlan ? (
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
+              <h1 className="text-2xl font-black uppercase text-slate-800">No Approved Current Plan</h1>
+              <p className="mt-3 text-slate-500">
+                Staff can only view the currently approved meal plan and checklist.
               </p>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            <div className="bg-white border-2 border-black px-5 py-3 rounded-xl font-black text-xs uppercase">
-              Status: {planRecord.status}
-            </div>
-            <div className="bg-white border-2 border-black px-5 py-3 rounded-xl font-black text-xs uppercase">
-              Est. Budget: ₱{analytics.totalEstimatedCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </div>
-            <button className="bg-white border-2 border-black px-6 py-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2">
-              <Printer size={18} /> Print Report
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <PhilippinePeso size={18} />
-              <p className="text-xs uppercase font-black">Inventory-Based Cost</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 mt-2">
-              ₱{analytics.totalEstimatedCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">Calculated from inventory item prices matched to recipe ingredients.</p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <ShoppingCart size={18} />
-              <p className="text-xs uppercase font-black">Purchase Gap</p>
-            </div>
-            <p className="text-2xl font-black text-red-500 mt-2">
-              ₱{analytics.totalShortageCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">Estimated value of shortages based on remaining ingredient gaps.</p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <PackageSearch size={18} />
-              <p className="text-xs uppercase font-black">Inventory Coverage</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 mt-2">
-              {analytics.coveredIngredients}/{checklist.length || 0}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">Ingredients matched to an inventory item with live stock and pricing.</p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <Calendar size={18} />
-              <p className="text-xs uppercase font-black">Planned Servings</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 mt-2">{totalServings}</p>
-            <p className="text-xs text-slate-500 mt-1">Total servings scheduled across the full meal plan.</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <PhilippinePeso size={18} />
-              <p className="text-xs uppercase font-black">Cost Per Serving</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 mt-2">
-              ₱{perServingCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">Estimated ingredient cost divided by the total planned servings.</p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <ShoppingCart size={18} />
-              <p className="text-xs uppercase font-black">Average Dish Cost</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 mt-2">
-              ₱{mealItemAnalytics.averageMealItemCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">Average estimated cost for each scheduled breakfast, lunch, or snack item.</p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-500">
-              <PackageSearch size={18} />
-              <p className="text-xs uppercase font-black">Scheduled Dishes</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 mt-2">{mealItemAnalytics.totalMealItems}</p>
-            <p className="text-xs text-slate-500 mt-1">Total number of meal entries included across the entire weekly plan.</p>
-          </div>
-        </div>
-
-        <div className="flex gap-2 mb-8 bg-slate-200 p-1.5 rounded-[2rem] w-fit border-2 border-black">
-          {(["schedule", "checklist"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => {
-                setActiveTab(tab);
-                router.push(`/meal-plan/${planRecord.id}?tab=${tab}`, { scroll: false });
-              }}
-              className={`flex items-center gap-2 px-6 md:px-8 py-3 rounded-[1.5rem] font-black text-xs uppercase transition-all ${
-                activeTab === tab
-                  ? "bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
-                  : "text-slate-500 hover:text-black"
-              }`}
-            >
-              {tab === "schedule" ? <Calendar size={16} /> : <ShoppingCart size={16} />}
-              {tab === "schedule" ? "Weekly Schedule" : "Grocery Checklist"}
-            </button>
-          ))}
-        </div>
-
-        {activeTab === "schedule" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {planRecord.planData.map((day) => (
-              <div
-                key={day.isoDate ?? day.date}
-                className="bg-white border-2 border-black rounded-[2rem] overflow-hidden shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col"
+              <button
+                type="button"
+                onClick={goBackToPlanner}
+                className="mt-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
               >
-                <div className="bg-[#FFF9C4] border-b-2 border-black p-4 text-center">
-                  <h3 className="font-black uppercase tracking-widest text-sm">{day.dayName}</h3>
-                  <p className="text-xs font-bold mt-1">{day.date}</p>
+                <ArrowLeft size={18} />
+                Back to Meal Planner
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-8 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+                <div className="flex items-center gap-6">
+                  <button
+                    type="button"
+                    onClick={goBackToPlanner}
+                    className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+                    aria-label="Go back"
+                  >
+                    <ArrowLeft size={26} strokeWidth={2.25} />
+                  </button>
+                  <div>
+                    <h1 className="text-3xl font-black uppercase italic leading-none tracking-tighter">
+                      Plan Details <span className="text-[#76ba53]">#{planRecord.id}</span>
+                    </h1>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      {planRecord.dateFrom} - {planRecord.dateTo}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="p-6 space-y-6 flex-grow">
-                  {day.isHoliday ? (
-                    <p className="font-black text-slate-400 uppercase text-center py-10">Holiday</p>
-                  ) : (
-                    (["Breakfast", "Lunch", "Snack"] as const).map((mealType) => (
-                      <div key={mealType}>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">
-                          {mealType}
-                        </label>
-                        <div className="space-y-2">
-                          {day.meals[mealType].items.length === 0 ? (
-                            <p className="text-sm text-slate-300 italic">Not scheduled</p>
-                          ) : (
-                            day.meals[mealType].items.map((item) => (
-                              <div key={item.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50">
-                                <p className="font-bold text-slate-800 leading-tight">{item.name}</p>
-                                <p className="text-xs text-slate-500 mt-1">
-                                  {item.pax} pax
-                                  {item.allergens?.trim() ? ` • Allergens: ${item.allergens}` : ""}
-                                </p>
-                                <p className="text-xs text-slate-500 mt-1">
-                                  Per person: ₱{estimateItemPerPersonCost(item).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                </p>
-                              </div>
-                            ))
-                          )}
-                        </div>
+                <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
+                  <div className="rounded-xl border-2 border-black bg-white px-5 py-3 text-xs font-black uppercase">
+                    Status: {planRecord.status}
+                  </div>
+                  <div className="rounded-xl border-2 border-black bg-white px-5 py-3 text-xs font-black uppercase">
+                    {isAdmin && editingBudget ? (
+                      <div className="flex items-center gap-2">
+                        <span>Budget:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={budgetDraft}
+                          onChange={(e) => setBudgetDraft(e.target.value)}
+                          className="w-32 rounded-md border border-slate-300 px-2 py-1 text-[11px] font-bold normal-case"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleBudgetSave}
+                          disabled={isSavingBudget}
+                          className="rounded-md border border-black px-2 py-1 disabled:opacity-60"
+                        >
+                          {isSavingBudget ? "Saving" : "Save"}
+                        </button>
                       </div>
-                    ))
-                  )}
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => isAdmin && setEditingBudget(true)}
+                        className={isAdmin ? "cursor-pointer" : "cursor-default"}
+                      >
+                        Est. Budget: {formatCurrency(displayedBudget)}
+                      </button>
+                    )}
+                  </div>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-white px-6 py-3 text-xs font-black uppercase text-slate-700 shadow-sm"
+              >
+                <Printer size={18} /> Print Report
+              </button>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-white border-2 border-black rounded-xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <table className="w-full text-left border-collapse min-w-[950px]">
-              <thead className="bg-[#FFF9C4] border-b-2 border-black font-black text-[10px] uppercase tracking-widest">
-                <tr>
-                  <th className="p-5 border-r-2 border-black text-center w-20">Status</th>
-                  <th className="p-5 border-r-2 border-black">Ingredient</th>
-                  <th className="p-5 border-r-2 border-black text-center">Required</th>
-                  <th className="p-5 border-r-2 border-black text-center">In Stock</th>
-                  <th className="p-5 border-r-2 border-black text-center">Shortage</th>
-                  <th className="p-5 border-r-2 border-black text-center">Unit Price</th>
-                  <th className="p-5">Estimated Price</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y-2 divide-black">
-                {checklist.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
-                      No ingredient checklist available for this meal plan yet.
-                    </td>
-                  </tr>
-                ) : (
-                  checklist.map((item) => (
-                    <tr key={`${item.item}-${item.unit}`} className="hover:bg-yellow-50/30 transition-colors font-bold group">
-                      <td className="p-5 border-r-2 border-black text-center">
-                        {item.status === "done" ? (
-                          <div className="flex justify-center">
-                            <CheckCircle2 className="text-[#76ba53]" size={24} />
-                          </div>
+
+              <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <PhilippinePeso size={18} />
+                    <p className="text-xs font-black uppercase">Inventory-Based Cost</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-slate-800">{formatCurrency(analytics.totalEstimatedCost)}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Calculated from inventory item prices matched to recipe ingredients.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <ShoppingCart size={18} />
+                    <p className="text-xs font-black uppercase">Purchase Gap</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-red-500">{formatCurrency(analytics.totalShortageCost)}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Estimated value of shortages based on remaining ingredient gaps.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <PackageSearch size={18} />
+                    <p className="text-xs font-black uppercase">Inventory Coverage</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-slate-800">
+                    {analytics.coveredIngredients}/{checklist.length || 0}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Ingredients matched to an inventory item with live stock and pricing.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <Calendar size={18} />
+                    <p className="text-xs font-black uppercase">Planned Servings</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-slate-800">{totalServings}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Total servings scheduled across the full meal plan.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <PhilippinePeso size={18} />
+                    <p className="text-xs font-black uppercase">Cost Per Serving</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-slate-800">{formatCurrency(perServingCost)}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Estimated ingredient cost divided by the total planned servings.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <ShoppingCart size={18} />
+                    <p className="text-xs font-black uppercase">Average Dish Cost</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-slate-800">
+                    {formatCurrency(mealItemAnalytics.averageMealItemCost)}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Average estimated cost for each scheduled breakfast, lunch, or snack item.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <PackageSearch size={18} />
+                    <p className="text-xs font-black uppercase">Scheduled Dishes</p>
+                  </div>
+                  <p className="mt-2 text-2xl font-black text-slate-800">{mealItemAnalytics.totalMealItems}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Total number of meal entries included across the entire weekly plan.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-8 flex w-fit gap-2 rounded-[1.6rem] border border-emerald-100 bg-white p-1.5 shadow-sm">
+                {(["schedule", "checklist"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab);
+                      router.push(`/meal-plan/${planRecord.id}?tab=${tab}`, { scroll: false });
+                    }}
+                    className={`flex items-center gap-2 rounded-[1.2rem] px-6 py-3 text-xs font-black uppercase transition-all md:px-8 ${
+                      activeTab === tab
+                        ? "bg-[#2f6f4f] text-white shadow-sm"
+                        : "text-slate-500 hover:bg-emerald-50 hover:text-[#2f6f4f]"
+                    }`}
+                  >
+                    {tab === "schedule" ? <Calendar size={16} /> : <ShoppingCart size={16} />}
+                    {tab === "schedule" ? "Weekly Schedule" : "Grocery Checklist"}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === "schedule" ? (
+                <div className="grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 sm:grid-cols-2 xl:grid-cols-3">
+                  {planRecord.planData.map((day) => (
+                    <div
+                      key={day.isoDate ?? day.date}
+                      className="flex flex-col overflow-hidden rounded-[1.7rem] border border-emerald-100 bg-white shadow-[0_18px_40px_rgba(47,111,79,0.08)]"
+                    >
+                      <div className="table-header-emerald border-b border-emerald-100 p-4 text-center">
+                        <h3 className="text-sm font-black uppercase tracking-widest">{day.dayName}</h3>
+                        <p className="mt-1 text-xs font-bold">{day.date}</p>
+                      </div>
+
+                      <div className="flex-grow space-y-6 p-6">
+                        {day.isHoliday ? (
+                          <p className="py-10 text-center font-black uppercase text-slate-400">Holiday</p>
                         ) : (
-                          <div className="flex justify-center">
-                            <AlertCircle className="text-red-400" size={24} />
-                          </div>
+                          (["Breakfast", "Lunch", "Snack"] as const).map((mealType) => (
+                            <div key={mealType}>
+                              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                {mealType}
+                              </label>
+                              <div className="space-y-2">
+                                {day.meals[mealType].items.length === 0 ? (
+                                  <p className="text-sm italic text-slate-300">Not scheduled</p>
+                                ) : (
+                                  day.meals[mealType].items.map((item) => (
+                                    <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                      <p className="leading-tight font-bold text-slate-800">{item.name}</p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {item.pax} pax
+                                        {item.allergens?.trim() ? ` • Allergens: ${item.allergens}` : ""}
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        Per person: {formatCurrency(estimateItemPerPersonCost(item))}
+                                      </p>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          ))
                         )}
-                      </td>
-                      <td className="p-5 border-r-2 border-black">
-                        <p className="text-slate-800 text-lg leading-none mb-1">{item.item}</p>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[9px] px-2 py-0.5 bg-slate-100 border border-slate-300 rounded font-black uppercase text-slate-500">
-                            {item.category}
-                          </span>
-                          {!item.matchedInventory && (
-                            <span className="text-[9px] px-2 py-0.5 bg-red-50 border border-red-200 rounded font-black uppercase text-red-500">
-                              No inventory match
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-5 border-r-2 border-black text-center">
-                        {item.requiredQty.toLocaleString(undefined, { maximumFractionDigits: 2 })} {item.unit}
-                      </td>
-                      <td className="p-5 border-r-2 border-black text-center">
-                        {item.inventoryQty.toLocaleString(undefined, { maximumFractionDigits: 2 })} {item.unit}
-                      </td>
-                      <td className="p-5 border-r-2 border-black text-center">
-                        <span className={item.shortageQty > 0 ? "text-red-500" : "text-green-600"}>
-                          {item.shortageQty.toLocaleString(undefined, { maximumFractionDigits: 2 })} {item.unit}
-                        </span>
-                      </td>
-                      <td className="p-5 border-r-2 border-black text-center">
-                        ₱{item.unitPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-5 italic text-slate-400 group-hover:text-black transition-colors">
-                        ₱{item.estPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-          </div>
-        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden rounded-[1.7rem] border border-emerald-100 bg-white shadow-[0_18px_40px_rgba(47,111,79,0.08)]">
+                  <div className="hidden-scrollbar overflow-x-auto">
+                  <table className="w-full min-w-[950px] border-collapse text-left">
+                    <thead className="table-header-emerald border-b border-emerald-100 text-[10px] font-black uppercase tracking-widest text-[#2f6f4f]">
+                      <tr>
+                        <th className="w-20 border-r border-emerald-100 p-5 text-center">Status</th>
+                        <th className="border-r border-emerald-100 p-5">Ingredient</th>
+                        <th className="border-r border-emerald-100 p-5 text-center">Required</th>
+                        <th className="border-r border-emerald-100 p-5 text-center">In Stock</th>
+                        <th className="border-r border-emerald-100 p-5 text-center">Shortage</th>
+                        <th className="border-r border-emerald-100 p-5 text-center">Unit Price</th>
+                        <th className="p-5">Estimated Price</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-emerald-50">
+                      {checklist.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-500">
+                            No ingredient checklist available for this meal plan yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        checklist.map((item) => (
+                          <tr
+                            key={`${item.item}-${item.unit}`}
+                            onClick={() => toggleChecklistStatus(item)}
+                            className={`group font-bold transition-colors ${isStaff ? "cursor-pointer hover:bg-emerald-50/40" : ""}`}
+                            aria-label={isStaff ? `Toggle ${item.item} checklist status` : `${item.item} checklist status`}
+                          >
+                            <td className="border-r border-emerald-50 p-5 text-center">
+                              {item.status === "done" ? (
+                                <div className="flex justify-center">
+                                  <CheckCircle2 className="text-[#2f6f4f]" size={24} />
+                                </div>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <AlertCircle className="text-red-400" size={24} />
+                                </div>
+                              )}
+                            </td>
+                            <td className="border-r border-emerald-50 p-5">
+                              <p className="mb-1 text-lg leading-none text-slate-800">{item.item}</p>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase text-[#2f6f4f]">
+                                  {item.category}
+                                </span>
+                                {!item.matchedInventory && (
+                                  <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[9px] font-black uppercase text-red-500">
+                                    No inventory match
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="border-r border-emerald-50 p-5 text-center">
+                              {item.requiredQty.toLocaleString(undefined, { maximumFractionDigits: 2 })} {item.unit}
+                            </td>
+                            <td className="border-r border-emerald-50 p-5 text-center">
+                              {item.inventoryQty.toLocaleString(undefined, { maximumFractionDigits: 2 })} {item.unit}
+                            </td>
+                            <td className="border-r border-emerald-50 p-5 text-center">
+                              <span className={item.shortageQty > 0 ? "text-red-500" : "text-green-600"}>
+                                {item.shortageQty.toLocaleString(undefined, { maximumFractionDigits: 2 })} {item.unit}
+                              </span>
+                            </td>
+                            <td className="border-r border-emerald-50 p-5 text-center">
+                              {formatCurrency(item.unitPrice)}
+                            </td>
+                            <td className="p-5 font-bold text-slate-500 transition-colors group-hover:text-[#2f6f4f]">
+                              {formatCurrency(item.estPrice)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
     </RoleGuard>
   );
 }

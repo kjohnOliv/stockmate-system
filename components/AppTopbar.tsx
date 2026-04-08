@@ -38,7 +38,7 @@ export default function AppTopbar({ onOpenSidebar, pendingCount = 0, pendingMeal
         <div className="flex items-center gap-3">
           <button
             onClick={onOpenSidebar}
-            className="inline-flex lg:hidden items-center justify-center w-10 h-10 rounded-xl border border-slate-200 text-slate-700"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-emerald-100 bg-white text-slate-700 shadow-sm"
           >
             <Menu size={20} />
           </button>

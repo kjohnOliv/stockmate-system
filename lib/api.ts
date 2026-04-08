@@ -1,5 +1,6 @@
 const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/+$/, "");
 const USE_CREDENTIALS = process.env.NEXT_PUBLIC_API_USE_CREDENTIALS === "true";
+export const PASSWORD_CHANGE_REQUIRED_MESSAGE = "Password change required before accessing the system";
 
 function buildUrl(path: string) {
   if (!path.startsWith("/")) {
@@ -48,6 +49,23 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+function getStoredUser() {
+  if (typeof window === "undefined") return null;
+
+  const raw = localStorage.getItem("stockmate_user");
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as { email?: string };
+  } catch {
+    return null;
+  }
+}
+
+export function isPasswordChangeRequiredErrorMessage(message: string) {
+  return message.toLowerCase().includes("password change required");
+}
+
 function mergeHeaders(defaults: HeadersInit, provided?: HeadersInit): HeadersInit {
   const headers = new Headers(defaults);
   
@@ -84,6 +102,14 @@ async function handleResponse(response: Response) {
     } catch {
       // Could not parse error response, use status code
     }
+
+    if (isPasswordChangeRequiredErrorMessage(errorMessage) && typeof window !== "undefined") {
+      const savedUser = getStoredUser();
+      const emailParam = savedUser?.email ? `?email=${encodeURIComponent(savedUser.email)}&required=1` : "?required=1";
+      localStorage.removeItem("stockmate_user");
+      window.location.href = `/reset-password${emailParam}`;
+    }
+
     throw new Error(errorMessage);
   }
   

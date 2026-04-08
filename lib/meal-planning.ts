@@ -57,6 +57,7 @@ export interface MealPlanRecord {
   estimatedBudget?: number;
   createdById?: number;
   createdByName?: string;
+  createdByRole?: string;
   updatedAt?: string;
 }
 
@@ -223,6 +224,63 @@ export function buildPlannedMealItem(recipe: PlannerRecipe): PlannedMealItem {
   };
 }
 
+function normalizeRecipeLookupName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+export function syncPlannedMealItemWithRecipes(
+  item: PlannedMealItem,
+  recipes: PlannerRecipe[]
+): PlannedMealItem {
+  const matchedRecipe =
+    recipes.find((recipe) => item.recipeId !== undefined && recipe.id === item.recipeId) ??
+    recipes.find((recipe) => normalizeRecipeLookupName(recipe.name) === normalizeRecipeLookupName(item.name));
+
+  if (!matchedRecipe) return item;
+
+  return {
+    ...item,
+    name: matchedRecipe.name,
+    recipeId: item.recipeId ?? matchedRecipe.id,
+    category: item.category ?? matchedRecipe.category,
+    basePax: item.basePax ?? matchedRecipe.paxSize,
+    allergens: item.allergens ?? matchedRecipe.allergens,
+    price: item.price ?? matchedRecipe.price,
+    ingredients: item.ingredients ?? matchedRecipe.ingredients,
+  };
+}
+
+export function syncDayPlansWithRecipes(dayPlans: DayPlan[], recipes: PlannerRecipe[]): DayPlan[] {
+  if (recipes.length === 0) return dayPlans;
+
+  return dayPlans.map((day) => ({
+    ...day,
+    meals: {
+      Breakfast: {
+        ...day.meals.Breakfast,
+        items: day.meals.Breakfast.items.map((item) => syncPlannedMealItemWithRecipes(item, recipes)),
+      },
+      Lunch: {
+        ...day.meals.Lunch,
+        items: day.meals.Lunch.items.map((item) => syncPlannedMealItemWithRecipes(item, recipes)),
+      },
+      Snack: {
+        ...day.meals.Snack,
+        items: day.meals.Snack.items.map((item) => syncPlannedMealItemWithRecipes(item, recipes)),
+      },
+    },
+  }));
+}
+
+export function syncMealPlanRecordsWithRecipes(records: MealPlanRecord[], recipes: PlannerRecipe[]): MealPlanRecord[] {
+  if (recipes.length === 0) return records;
+
+  return records.map((record) => ({
+    ...record,
+    planData: syncDayPlansWithRecipes(record.planData, recipes),
+  }));
+}
+
 export function estimateItemCost(item: PlannedMealItem) {
   const ingredients = Array.isArray(item.ingredients) ? item.ingredients : [];
   const basePax = item.basePax && item.basePax > 0 ? item.basePax : item.pax || 1;
@@ -290,6 +348,7 @@ export function normalizeMealPlanRecord(raw: unknown): MealPlanRecord | null {
         ? undefined
         : Number(record.created_by_id ?? record.createdById ?? 0),
     createdByName: String(record.created_by_name ?? record.createdByName ?? ""),
+    createdByRole: String(record.created_by_role ?? record.createdByRole ?? ""),
     updatedAt: String(record.updated_at ?? record.updatedAt ?? ""),
   };
 }

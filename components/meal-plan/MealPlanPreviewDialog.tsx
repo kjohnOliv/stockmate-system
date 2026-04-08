@@ -40,12 +40,22 @@ interface MealPlanPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   plan: MealPlanRecord | null;
+  canEdit?: boolean;
+  canReview?: boolean;
+  onEdit?: (plan: MealPlanRecord) => void;
+  onApprove?: (plan: MealPlanRecord) => void;
+  onReject?: (plan: MealPlanRecord) => void;
 }
 
 export default function MealPlanPreviewDialog({
   open,
   onOpenChange,
   plan,
+  canEdit = false,
+  canReview = false,
+  onEdit,
+  onApprove,
+  onReject,
 }: MealPlanPreviewDialogProps) {
   useBodyModalState(open);
 
@@ -86,6 +96,15 @@ export default function MealPlanPreviewDialog({
                 Review the weekly meal setup before opening the full checklist page.
               </DialogDescription>
             </div>
+            {canEdit && onEdit ? (
+              <button
+                type="button"
+                onClick={() => onEdit(plan)}
+                className="rounded-2xl bg-[#2f6f4f] px-4 py-2 text-xs font-black uppercase tracking-wide text-white transition hover:bg-[#285f44]"
+              >
+                Edit Plan
+              </button>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-3 pt-4 sm:grid-cols-3">
@@ -180,6 +199,28 @@ export default function MealPlanPreviewDialog({
             ))}
           </div>
         </div>
+        {canReview && (onApprove || onReject) ? (
+          <div className="flex gap-3 border-t border-slate-200 px-6 py-5">
+            {onReject ? (
+              <button
+                type="button"
+                onClick={() => onReject(plan)}
+                className="flex-1 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 transition hover:bg-red-100"
+              >
+                Reject Plan
+              </button>
+            ) : null}
+            {onApprove ? (
+              <button
+                type="button"
+                onClick={() => onApprove(plan)}
+                className="flex-1 rounded-2xl bg-[#2f6f4f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#285f44]"
+              >
+                Approve Plan
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

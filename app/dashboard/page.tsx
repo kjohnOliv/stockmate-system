@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient } from "@/lib/api";
+import { ApiClient, isPasswordChangeRequiredErrorMessage } from "@/lib/api";
 import { normalizeMealPlanRecords, normalizePlanStatus } from "@/lib/meal-planning";
 
 export default function Dashboard() {
@@ -39,16 +39,22 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [userRes, invRes, planRes] = await Promise.all([
-          ApiClient.get("/api/users"),
-          ApiClient.get("/api/dashboard/overview"),
-          ApiClient.get("/api/meal-plans"),
-        ]);
+        const requests: Promise<Response>[] = [ApiClient.get("/api/dashboard/overview")];
+        if (isAdmin) requests.unshift(ApiClient.get("/api/users"));
+        if (isStaff) requests.push(ApiClient.get("/api/meal-plans/active"));
+        else requests.push(ApiClient.get("/api/meal-plans"));
+        const responses = await Promise.all(requests);
 
-        if (userRes.ok) {
+        const userRes = isAdmin ? responses[0] : null;
+        const invRes = responses[isAdmin ? 1 : 0];
+        const planRes = responses[isAdmin ? 2 : 1];
+
+        if (userRes?.ok) {
           const userResult = await userRes.json();
           const users = Array.isArray(userResult?.data) ? userResult.data : [];
           setUserCount(users.length);
+        } else if (!isAdmin) {
+          setUserCount(0);
         }
 
         if (invRes.ok) {
@@ -64,15 +70,27 @@ export default function Dashboard() {
 
         if (planRes.ok) {
           const planResult = await planRes.json();
-          const plans = normalizeMealPlanRecords(planResult?.success ? planResult.data : planResult?.data ?? planResult);
+          const rawPlans = isStaff
+            ? planResult?.data
+              ? [planResult.data]
+              : Array.isArray(planResult)
+              ? planResult
+              : planResult
+              ? [planResult]
+              : []
+            : planResult?.success
+            ? planResult.data
+            : planResult?.data ?? planResult;
+          const plans = normalizeMealPlanRecords(rawPlans);
           const today = new Date().toISOString().slice(0, 10);
           setPlanCount({
-            pending: plans.filter((plan) => normalizePlanStatus(plan.status) === "pending").length,
+            pending: isStaff ? 0 : plans.filter((plan) => normalizePlanStatus(plan.status) === "pending").length,
             approved: plans.filter((plan) => normalizePlanStatus(plan.status) === "approved").length,
             current: plans.filter((plan) => plan.dateFrom <= today && plan.dateTo >= today).length,
           });
         }
       } catch (err) {
+        if (err instanceof Error && isPasswordChangeRequiredErrorMessage(err.message)) return;
         console.error("Dashboard fetch error:", err);
       } finally {
         setIsDataLoading(false);
@@ -80,7 +98,7 @@ export default function Dashboard() {
     };
 
     if (user) fetchDashboardData();
-  }, [user]);
+  }, [isAdmin, isStaff, user]);
 
   const stats = useMemo(
     () => [
@@ -108,9 +126,9 @@ export default function Dashboard() {
             Hello, <span className="text-[#6BCB3B]">{user?.full_name || "User"}</span>
           </h1>
           <p className="text-slate-500 font-medium italic mt-2">
-            {isAdmin && "Admin command center for approvals, analytics, and operations."}
-            {isCook && "Kitchen planning dashboard for submissions, recipe prep, and inventory readiness."}
-            {isStaff && "Current service overview and approved prep checklist access."}
+            {isAdmin && "Owner dashboard for account approvals, meal plan approvals, budget review, and menu management."}
+            {isCook && "Kitchen dashboard for recipe management, inventory item additions, and weekly meal plan creation."}
+            {isStaff && "Operations dashboard for inventory stock management, checklist updates, and weekly menu viewing."}
           </p>
         </div>
       </div>
@@ -148,12 +166,16 @@ export default function Dashboard() {
                   <p className="text-sm text-slate-500 mt-1">{planCount.pending} plans need admin action</p>
                 </button>
                 <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                  <p className="font-black text-slate-800">Inventory Audit</p>
+                  <p className="font-black text-slate-800">Inventory View</p>
                   <p className="text-sm text-slate-500 mt-1">{invStats.lowStock} low-stock items to review</p>
                 </button>
                 <button onClick={() => router.push("/meal-directory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                  <p className="font-black text-slate-800">Recipe Management</p>
-                  <p className="text-sm text-slate-500 mt-1">Update meal directory and recipe coverage</p>
+                  <p className="font-black text-slate-800">Meal Directory View</p>
+                  <p className="text-sm text-slate-500 mt-1">Review recipes without editing directory items</p>
+                </button>
+                <button onClick={() => router.push("/student-menu")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Manage Menu</p>
+                  <p className="text-sm text-slate-500 mt-1">Review the published menu based on approved plans</p>
                 </button>
               </>
             )}
@@ -168,6 +190,14 @@ export default function Dashboard() {
                   <p className="font-black text-slate-800">Manage Recipes</p>
                   <p className="text-sm text-slate-500 mt-1">Keep menu selections aligned with inventory</p>
                 </button>
+                <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">Add Inventory Item</p>
+                  <p className="text-sm text-slate-500 mt-1">Add new ingredients that meal planning needs</p>
+                </button>
+                <button onClick={() => router.push("/student-menu")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">View Menu</p>
+                  <p className="text-sm text-slate-500 mt-1">Preview the published menu without editing it</p>
+                </button>
               </>
             )}
 
@@ -178,8 +208,12 @@ export default function Dashboard() {
                   <p className="text-sm text-slate-500 mt-1">Open the approved plan checklist when available</p>
                 </button>
                 <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                  <p className="font-black text-slate-800">Inventory Status</p>
-                  <p className="text-sm text-slate-500 mt-1">Track stock readiness before meal service</p>
+                  <p className="font-black text-slate-800">Manage Inventory Stocks</p>
+                  <p className="text-sm text-slate-500 mt-1">Update stock levels based on current inventory movement</p>
+                </button>
+                <button onClick={() => router.push("/student-menu")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <p className="font-black text-slate-800">View Weekly Menu</p>
+                  <p className="text-sm text-slate-500 mt-1">See the approved weekly menu in read-only mode</p>
                 </button>
               </>
             )}

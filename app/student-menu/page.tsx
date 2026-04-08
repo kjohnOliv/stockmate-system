@@ -2,46 +2,34 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Calendar, Utensils } from 'lucide-react';
-import { estimateItemPerPersonCost, PlannedMealItem, RecipeIngredient } from "@/lib/meal-planning";
+import {
+  DayPlan,
+  estimateItemPerPersonCost,
+  normalizeRecipes,
+  PlannedMealItem,
+  StatusType,
+  syncDayPlansWithRecipes,
+} from "@/lib/meal-planning";
 
-interface MealItem {
-  id?: string;
-  name: string;
-  pax: number;
-  basePax?: number;
-  price?: number;
-  allergens?: string;
-  ingredients?: RecipeIngredient[];
-  perPersonPrice?: number;
-  manualCostPerServing?: number;
-}
+type EnrichedMealItem = PlannedMealItem & {
+  perPersonPrice: number;
+};
 
-interface MealCategory {
-  items: MealItem[];
-}
+type EnrichedMealCategoryPlan = {
+  status: StatusType;
+  items: EnrichedMealItem[];
+};
 
-interface RecipeMenuMeta {
-  name: string;
-  price?: number;
-  allergens?: string;
-  paxSize?: number;
-  ingredients?: RecipeIngredient[];
-}
-
-interface DayPlan {
-  date: string;
-  dayName: string;
-  isoDate?: string;
-  isHoliday: boolean;
+type EnrichedDayPlan = Omit<DayPlan, "meals"> & {
   meals: {
-    Breakfast: MealCategory;
-    Lunch: MealCategory;
-    Snack: MealCategory;
+    Breakfast: EnrichedMealCategoryPlan;
+    Lunch: EnrichedMealCategoryPlan;
+    Snack: EnrichedMealCategoryPlan;
   };
-}
+};
 
 export default function StudentActiveMenu() {
-  const [todayPlan, setTodayPlan] = useState<DayPlan | null>(null);
+  const [todayPlan, setTodayPlan] = useState<EnrichedDayPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,12 +111,45 @@ export default function StudentActiveMenu() {
           return;
         }
 
+        const enrichItem = (item: PlannedMealItem): EnrichedMealItem => {
+          const completeItem: PlannedMealItem = {
+            ...item,
+            id: item.id ?? `student-menu-${item.name}-${item.pax}`,
+            basePax: item.basePax ?? item.pax,
+            price: item.price ?? 0,
+            allergens: item.allergens ?? "",
+            ingredients: item.ingredients,
+          };
+
+          return {
+            ...completeItem,
+            perPersonPrice: estimateItemPerPersonCost(completeItem),
+          };
+        };
+
         const hasMeals = (['Breakfast', 'Lunch', 'Snack'] as const).some(
           (type) => today.meals?.[type]?.items?.length > 0
         );
 
         if (!hasMeals && !today.isHoliday) {
-          setTodayPlan(today);
+          const emptyTodayPlan: EnrichedDayPlan = {
+            ...today,
+            meals: {
+              Breakfast: {
+                status: today.meals.Breakfast.status,
+                items: today.meals.Breakfast.items.map(enrichItem),
+              },
+              Lunch: {
+                status: today.meals.Lunch.status,
+                items: today.meals.Lunch.items.map(enrichItem),
+              },
+              Snack: {
+                status: today.meals.Snack.status,
+                items: today.meals.Snack.items.map(enrichItem),
+              },
+            },
+          };
+          setTodayPlan(emptyTodayPlan);
           setError("No meals scheduled for today");
           return;
         }
@@ -138,50 +159,25 @@ export default function StudentActiveMenu() {
           : Array.isArray(recipeData)
           ? recipeData
           : [];
-        const recipeList: RecipeMenuMeta[] = rawRecipeList
-          .filter((recipe: unknown): recipe is Record<string, unknown> => typeof recipe === "object" && recipe !== null)
-          .map((recipe: Record<string, unknown>) => ({
-            name: String(recipe.name ?? ""),
-            price: recipe.price === undefined ? undefined : Number(recipe.price),
-            allergens: recipe.allergens === undefined ? undefined : String(recipe.allergens),
-            paxSize:
-              recipe.pax_size === undefined && recipe.paxSize === undefined
-                ? undefined
-                : Number(recipe.pax_size ?? recipe.paxSize),
-            ingredients: Array.isArray(recipe.ingredients) ? (recipe.ingredients as RecipeIngredient[]) : undefined,
-          }));
-        const recipesByName = new Map<string, RecipeMenuMeta>(
-          recipeList.map((recipe) => [recipe.name.trim().toLowerCase(), recipe])
-        );
+        const recipeList = normalizeRecipes(rawRecipeList);
+        const syncedPlanData = syncDayPlansWithRecipes(planData, recipeList);
+        const todayWithCanonicalNames = findTodayPlan(syncedPlanData);
 
-        const enrichItem = (item: MealItem) => {
-          const recipe = recipesByName.get(item.name.trim().toLowerCase());
-          const completeItem: PlannedMealItem = {
-            ...item,
-            id: item.id ?? `student-menu-${item.name}-${item.pax}`,
-            basePax: item.basePax ?? recipe?.paxSize ?? item.pax,
-            price: item.price ?? Number(recipe?.price ?? 0),
-            allergens: item.allergens ?? String(recipe?.allergens ?? ""),
-            ingredients: item.ingredients ?? recipe?.ingredients,
-          };
-
-          return {
-            ...completeItem,
-            perPersonPrice: estimateItemPerPersonCost(completeItem),
-          };
-        };
-
-        const enrichedToday: DayPlan = {
-          ...today,
+        const sourcePlan = todayWithCanonicalNames ?? today;
+        const enrichedToday: EnrichedDayPlan = {
+          ...sourcePlan,
           meals: {
             Breakfast: {
-              items: today.meals.Breakfast.items.map(enrichItem),
+              status: sourcePlan.meals.Breakfast.status,
+              items: sourcePlan.meals.Breakfast.items.map(enrichItem),
             },
             Lunch: {
-              items: today.meals.Lunch.items.map(enrichItem),
+              status: sourcePlan.meals.Lunch.status,
+              items: sourcePlan.meals.Lunch.items.map(enrichItem),
             },
             Snack: {
-              items: today.meals.Snack.items.map(enrichItem),
+              status: sourcePlan.meals.Snack.status,
+              items: sourcePlan.meals.Snack.items.map(enrichItem),
             },
           },
         };
@@ -279,6 +275,7 @@ export default function StudentActiveMenu() {
                               {formatCurrency(Number(item.perPersonPrice ?? 0))}
                             </p>
                           </div>
+                          
                           <p className="mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">
                             {item.manualCostPerServing ? "Published amount" : "Per person"}
                           </p>

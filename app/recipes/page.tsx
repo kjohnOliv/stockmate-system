@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  Plus, Trash2, Save, ChevronDown, Utensils, 
+  Plus, Trash2, Utensils, 
   Loader2, Search, X, Info, ChevronRight 
 } from 'lucide-react';
 import { ApiClient } from "@/lib/api";
+import { AppSelect } from "@/components/ui/app-select";
 
 interface Ingredient {
   inventoryId: string;
@@ -21,8 +22,15 @@ interface Recipe {
   ingredients: Ingredient[];
 }
 
+interface InventoryRecord {
+  id: number;
+  item: string;
+  unit: string;
+  qty?: number | string;
+}
+
 export default function MealDirectory() {
-  const [inventory, setInventory] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<InventoryRecord[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -105,7 +113,7 @@ export default function MealDirectory() {
       }
       alert("Inventory scaling complete. Stock deducted!");
       fetchData();
-    } catch (err) {
+    } catch {
       alert("Deduction failed. Check console.");
     }
   };
@@ -156,13 +164,16 @@ export default function MealDirectory() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Category</label>
-              <select 
-                className="w-full bg-slate-50 border-2 border-transparent focus:border-[#76ba53] focus:bg-white rounded-2xl p-4 font-bold outline-none"
+              <AppSelect
                 value={newRecipe.category}
-                onChange={e => setNewRecipe({...newRecipe, category: e.target.value})}
-              >
-                <option>Breakfast</option><option>Lunch</option><option>Snacks</option>
-              </select>
+                onValueChange={(value) => setNewRecipe({...newRecipe, category: value})}
+                className="w-full bg-slate-50 p-4 font-bold"
+                options={[
+                  { label: "Breakfast", value: "Breakfast" },
+                  { label: "Lunch", value: "Lunch" },
+                  { label: "Snacks", value: "Snacks" },
+                ]}
+              />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Std Pax</label>
@@ -186,18 +197,20 @@ export default function MealDirectory() {
             
             {newRecipe.ingredients.map((ing, idx) => (
               <div key={idx} className="flex gap-4 items-center animate-in fade-in slide-in-from-left-2">
-                <select 
-                  className="flex-1 bg-slate-50 border-2 border-transparent focus:border-[#76ba53] rounded-xl p-3 font-bold text-sm outline-none"
+                <AppSelect
                   value={ing.inventoryId}
-                  onChange={e => {
+                  onValueChange={(value) => {
                     const updated = [...newRecipe.ingredients];
-                    updated[idx].inventoryId = e.target.value;
+                    updated[idx].inventoryId = value;
                     setNewRecipe({...newRecipe, ingredients: updated});
                   }}
-                >
-                  <option value="">Select from Stock...</option>
-                  {inventory.map(i => <option key={i.id} value={i.id}>{i.item} ({i.unit})</option>)}
-                </select>
+                  className="flex-1 rounded-xl p-3 font-bold text-sm"
+                  placeholder="Select from Stock..."
+                  options={[
+                    { label: "Select from Stock...", value: "" },
+                    ...inventory.map((i) => ({ label: `${i.item} (${i.unit})`, value: String(i.id) })),
+                  ]}
+                />
                 <input 
                   type="number"
                   placeholder="Qty"

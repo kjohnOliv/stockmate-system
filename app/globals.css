@@ -132,3 +132,35 @@ body.app-modal-open [data-app-sidebar="true"] {
   filter: blur(10px);
   opacity: 0.78;
 }
+
+@layer utilities {
+  .table-header-emerald {
+    background: linear-gradient(90deg, #fff6c7 0%, #f5f9dc 50%, #edf8ea 100%);
+  }
+
+  .app-select {
+    appearance: none;
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 1rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem;
+    padding-right: 3rem;
+  }
+
+  .app-select option {
+    color: #0f172a;
+    background: #ffffff;
+  }
+
+  .hidden-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hidden-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}

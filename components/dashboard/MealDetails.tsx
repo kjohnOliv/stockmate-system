@@ -27,6 +27,7 @@ interface MealDetailsProps {
   recipe: Meal | null;
   onEdit: (meal: Meal) => void;
   onDelete: (id: number) => void;
+  canManage?: boolean;
 }
 
 export default function MealDetails({ 
@@ -34,7 +35,8 @@ export default function MealDetails({
   onClose, 
   recipe, 
   onEdit, 
-  onDelete 
+  onDelete,
+  canManage = true,
 }: MealDetailsProps) {
   
   if (!isOpen || !recipe) return null;
@@ -44,31 +46,36 @@ export default function MealDetails({
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white w-full max-w-2xl rounded-[40px] border-4 border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+      <div className="w-full max-w-2xl overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-[0_24px_60px_rgba(47,111,79,0.18)]">
         
         {/* Header */}
-        <div className="p-6 border-b-4 border-black bg-[#FFF9C4] flex justify-between items-center">
+        <div className="table-header-emerald flex items-center justify-between border-b border-emerald-100 p-6">
           <div className="flex items-center gap-3">
-            <Utensils size={24} />
-            <h2 className="text-xl font-black italic uppercase tracking-tight">Recipe Details</h2>
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/80 text-[#2f6f4f] shadow-sm">
+              <Utensils size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black uppercase tracking-tight text-slate-900">Recipe Details</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2f6f4f]">Meal Directory</p>
+            </div>
           </div>
           <button 
             onClick={onClose}
-            className="hover:rotate-90 transition-transform p-1"
+            className="rounded-full p-2 text-slate-600 transition hover:bg-white/70 hover:text-slate-900"
           >
-            <X size={24} strokeWidth={3} />
+            <X size={22} strokeWidth={2.6} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+        <div className="hidden-scrollbar max-h-[70vh] overflow-y-auto p-8">
           <div className="mb-8">
-            <h1 className="text-4xl font-black uppercase mb-2 leading-none">{recipe.name}</h1>
-            <div className="flex gap-4 mt-3">
-              <span className="bg-blue-100 border-2 border-black px-3 py-1 rounded-full text-[10px] font-black uppercase">
+            <h1 className="mb-3 text-4xl font-black leading-none text-slate-900">{recipe.name}</h1>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <span className="rounded-full bg-emerald-50 px-4 py-1.5 text-[10px] font-black uppercase text-[#2f6f4f]">
                 {recipe.category}
               </span>
-              <span className="flex items-center gap-1 text-[10px] font-black uppercase text-slate-500">
+              <span className="flex items-center gap-1 rounded-full bg-slate-100 px-4 py-1.5 text-[10px] font-black uppercase text-slate-500">
                 <Users size={14} /> {displayPax} PAX
               </span>
             </div>
@@ -76,13 +83,13 @@ export default function MealDetails({
 
           {/* Ingredients Section */}
           <div className="mb-8">
-            <h3 className="font-black uppercase italic underline mb-4">Ingredients List</h3>
+            <h3 className="mb-4 text-xs font-black uppercase tracking-[0.2em] text-[#2f6f4f]">Ingredients List</h3>
             <div className="space-y-2">
               {recipe.ingredients && recipe.ingredients.length > 0 ? (
                 recipe.ingredients.map((ing, idx) => (
-                  <div key={idx} className="flex justify-between border-b-2 border-slate-100 pb-2 font-bold text-sm">
-                    <span className="uppercase">{ing.itemName || "Unknown Item"}</span>
-                    <span className="text-[#76ba53]">{ing.qty} {ing.unit}</span>
+                  <div key={idx} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold">
+                    <span className="text-slate-800">{ing.itemName || "Unknown Item"}</span>
+                    <span className="text-[#2f6f4f]">{ing.qty} {ing.unit}</span>
                   </div>
                 ))
               ) : (
@@ -93,33 +100,45 @@ export default function MealDetails({
 
           {/* Allergens */}
           {recipe.allergens && (
-            <div className="bg-red-50 border-2 border-red-200 p-4 rounded-2xl flex items-start gap-3">
+            <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
               <AlertCircle className="text-red-500 shrink-0" size={20} />
               <div>
-                <p className="text-[10px] font-black uppercase text-red-400 leading-none mb-1">Allergen Alert</p>
-                <p className="text-red-700 font-bold text-sm uppercase">{recipe.allergens}</p>
+                <p className="mb-1 text-[10px] font-black uppercase tracking-[0.18em] text-red-400">Allergen Alert</p>
+                <p className="text-sm font-bold uppercase text-red-700">{recipe.allergens}</p>
               </div>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
-        <div className="p-6 border-t-4 border-black bg-slate-50 flex gap-4">
-          <button 
-            type="button"
-            onClick={() => recipe.id && onDelete(recipe.id)}
-            className="flex items-center gap-2 text-red-500 font-black uppercase text-xs hover:bg-red-100 p-3 rounded-xl transition-colors"
-          >
-            <Trash2 size={18} /> Delete
-          </button>
+        <div className="flex gap-4 border-t border-emerald-100 bg-slate-50 p-6">
+          {canManage ? (
+            <>
+              <button 
+                type="button"
+                onClick={() => recipe.id && onDelete(recipe.id)}
+                className="flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-black uppercase text-red-500 transition-colors hover:bg-red-100"
+              >
+                <Trash2 size={18} /> Delete
+              </button>
 
-          <button 
-            type="button"
-            onClick={() => onEdit(recipe)}
-            className="flex-1 bg-black text-white p-4 rounded-2xl font-black uppercase text-xs shadow-[4px_4px_0px_0px_rgba(118,186,83,1)] hover:translate-y-0.5 hover:shadow-none transition-all active:translate-y-1"
-          >
-            Edit Recipe
-          </button>
+              <button 
+                type="button"
+                onClick={() => onEdit(recipe)}
+                className="flex-1 rounded-2xl bg-[#2f6f4f] p-4 text-xs font-black uppercase text-white transition hover:bg-[#285f44]"
+              >
+                Edit Recipe
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-2xl bg-[#2f6f4f] p-4 text-xs font-black uppercase text-white transition hover:bg-[#285f44]"
+            >
+              Close Details
+            </button>
+          )}
         </div>
       </div>
     </div>
