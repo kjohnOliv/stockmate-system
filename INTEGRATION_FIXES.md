@@ -142,8 +142,8 @@ Backend (`.env`):
 ```
 DATABASE_URL=postgres://user:pass@localhost:5432/StockMateDB
 PORT=8080
-SMTP_EMAIL=your-email@gmail.com
-SMTP_PASS=your-app-password
+SMTP_EMAIL=stockmatedata@gmail.com
+SMTP_PASS=<your-app-password>
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 ```
@@ -152,7 +152,7 @@ SMTP_PORT=587
 
 ## ✅ Testing Checklist
 
-- [ ] Login with admin credentials (devillakelvinjohn@gmail.com / admin123)
+- [ ] Login with admin credentials (stockmatedata@gmail.com / admin123)
 - [ ] View dashboard with inventory & plan stats
 - [ ] Create new inventory item
 - [ ] Create new recipe

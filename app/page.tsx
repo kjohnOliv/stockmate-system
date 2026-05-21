@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import StudentActiveMenu from "@/app/student-menu/page";
+import PublicMenuPage from "@/app/public-menu/page";
 
 export default function Home() {
   const { user } = useAuth();
@@ -35,7 +35,7 @@ export default function Home() {
         )}
       </div>
 
-      <StudentActiveMenu />
+      <PublicMenuPage />
     </div>
   );
 }

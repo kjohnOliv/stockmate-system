@@ -1,9 +1,7 @@
 "use client";
 
-import React from 'react';
-import { Trash2, PlusCircle } from 'lucide-react';
-// Corrected imports - Ensure these are installed via: 
-// npx shadcn-ui@latest add dialog button input label
+import React from "react";
+import { Trash2, PlusCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -54,9 +52,8 @@ export default function MealModal({
   setFormData,
   inventory,
   handleSaveMeal,
-  setIsNewIngModalOpen
+  setIsNewIngModalOpen,
 }: MealModalProps) {
-
   const handleIngredientChange = (idx: number, field: keyof Ingredient, value: number) => {
     const updatedIngs = [...formData.ingredients];
     updatedIngs[idx] = { ...updatedIngs[idx], [field]: value };
@@ -64,46 +61,46 @@ export default function MealModal({
   };
 
   const handleSelectInventory = (idx: number, invId: string) => {
-    const selectedItem = inventory.find(item => item.id === parseInt(invId));
+    const selectedItem = inventory.find((item) => item.id === parseInt(invId));
     const updatedIngs = [...formData.ingredients];
     if (selectedItem) {
       updatedIngs[idx] = {
         ...updatedIngs[idx],
         inventoryId: selectedItem.id,
         unit: selectedItem.unit,
-        itemName: selectedItem.item
+        itemName: selectedItem.item,
       };
     } else {
-      updatedIngs[idx] = { ...updatedIngs[idx], inventoryId: null, unit: '' };
+      updatedIngs[idx] = { ...updatedIngs[idx], inventoryId: null, unit: "" };
     }
     setFormData({ ...formData, ingredients: updatedIngs });
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl bg-white rounded-[2.5rem] border-2 border-black p-0 overflow-hidden shadow-2xl">
-        <DialogHeader className="p-8 bg-slate-50 border-b-2 border-black">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter">
-            {formData.id ? 'Edit Recipe' : 'New Meal Recipe'}
+      <DialogContent className="max-w-2xl overflow-hidden border border-emerald-100 bg-white p-0 shadow-[0_24px_60px_rgba(47,111,79,0.18)]">
+        <DialogHeader className="border-b border-emerald-100 bg-[linear-gradient(90deg,_#fff6c7_0%,_#f5f9dc_50%,_#edf8ea_100%)] p-8">
+          <DialogTitle className="text-2xl font-black tracking-tight text-slate-900">
+            {formData.id ? "Edit Recipe" : "New Meal Recipe"}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="p-8 overflow-y-auto max-h-[70vh] space-y-6">
+        <div className="max-h-[70vh] space-y-6 overflow-y-auto p-8">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="font-black text-[10px] uppercase">Meal Name</Label>
-              <Input 
-                className="border-2 border-black font-bold"
+              <Label className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Meal Name</Label>
+              <Input
+                className="font-bold"
                 value={formData.name}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({...formData, name: e.target.value})}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label className="font-black text-[10px] uppercase">Category</Label>
+              <Label className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Category</Label>
               <AppSelect
                 value={formData.category}
                 onValueChange={(value) => setFormData({ ...formData, category: value })}
-                className="h-10 w-full rounded-md border-2 border-black px-3 py-2 font-bold"
+                className="font-bold"
                 options={[
                   { label: "Breakfast", value: "Breakfast" },
                   { label: "Lunch", value: "Lunch" },
@@ -114,19 +111,19 @@ export default function MealModal({
           </div>
 
           <div className="space-y-4">
-            <div className="flex justify-between items-end border-b-2 border-slate-100 pb-2">
+            <div className="flex items-end justify-between border-b border-slate-100 pb-2">
               <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Ingredients</h4>
-              <Button 
+              <Button
                 variant="link"
                 onClick={() => setIsNewIngModalOpen(true)}
-                className="text-blue-600 font-black text-[10px] uppercase p-0 h-auto"
+                className="h-auto p-0 text-[10px] font-black uppercase text-blue-600"
               >
-                <PlusCircle size={14} className="mr-1"/> Not in Inventory?
+                <PlusCircle size={14} className="mr-1" /> Not in Inventory?
               </Button>
             </div>
 
             {formData.ingredients.map((ing, idx) => (
-              <div key={idx} className="flex gap-2 items-center bg-slate-50 p-2 rounded-2xl border-2 border-slate-100">
+              <div key={idx} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
                 <AppSelect
                   value={String(ing.inventoryId || "")}
                   onValueChange={(value) => handleSelectInventory(idx, value)}
@@ -138,47 +135,44 @@ export default function MealModal({
                   ]}
                 />
 
-                <Input 
+                <Input
                   type="number"
-                  className="w-24 border-2 border-slate-200 font-black text-blue-600"
+                  className="w-24 font-black text-blue-600"
                   placeholder="Qty"
                   value={ing.qty || ""}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleIngredientChange(idx, 'qty', parseFloat(e.target.value))}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleIngredientChange(idx, "qty", parseFloat(e.target.value))}
                 />
 
-                <div className="w-12 text-center font-black text-slate-400 text-[10px] uppercase">
+                <div className="w-12 text-center text-[10px] font-black uppercase text-slate-400">
                   {ing.unit || "---"}
                 </div>
 
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   size="icon"
                   onClick={() => {
                     const updated = formData.ingredients.filter((_, i) => i !== idx);
-                    setFormData({...formData, ingredients: updated});
+                    setFormData({ ...formData, ingredients: updated });
                   }}
                   className="text-red-400 hover:text-red-600"
                 >
-                  <Trash2 size={16}/>
+                  <Trash2 size={16} />
                 </Button>
               </div>
             ))}
 
-            <Button 
+            <Button
               variant="outline"
-              onClick={() => setFormData({...formData, ingredients: [...formData.ingredients, { inventoryId: null, qty: 0, unit: '' }]})}
-              className="w-full border-dashed border-2 font-bold text-xs uppercase"
+              onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { inventoryId: null, qty: 0, unit: "" }] })}
+              className="w-full border-dashed text-xs font-bold uppercase"
             >
               + Add Ingredient Row
             </Button>
           </div>
         </div>
 
-        <div className="p-8 bg-slate-50 border-t-2 border-slate-100 flex gap-4">
-          <Button 
-            onClick={handleSaveMeal}
-            className="w-full py-6 font-black uppercase text-white bg-black border-2 border-black shadow-[4px_4px_0px_0px_rgba(118,186,83,1)] hover:translate-y-1 hover:shadow-none transition-all"
-          >
+        <div className="flex gap-4 border-t border-slate-100 bg-slate-50 p-8">
+          <Button onClick={handleSaveMeal} className="h-12 w-full font-black uppercase">
             Confirm & Save Template
           </Button>
         </div>

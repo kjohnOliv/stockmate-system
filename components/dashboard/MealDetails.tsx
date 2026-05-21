@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { X, Trash2, Utensils, Users, AlertCircle } from 'lucide-react';
+import { normalizeTitleCase } from '@/lib/meal-planning';
 
 // --- INTERFACES ---
 interface Ingredient {
@@ -18,6 +19,7 @@ interface Meal {
   paxSize?: number;  // Optional to handle both naming conventions
   pax_size?: number; // Added to match Go backend naming
   allergens: string;
+  price?: number;
   ingredients: Ingredient[];
 }
 
@@ -70,13 +72,16 @@ export default function MealDetails({
         {/* Content */}
         <div className="hidden-scrollbar max-h-[70vh] overflow-y-auto p-8">
           <div className="mb-8">
-            <h1 className="mb-3 text-4xl font-black leading-none text-slate-900">{recipe.name}</h1>
+            <h1 className="mb-3 text-4xl font-black leading-none text-slate-900">{normalizeTitleCase(recipe.name)}</h1>
             <div className="mt-3 flex flex-wrap gap-3">
               <span className="rounded-full bg-emerald-50 px-4 py-1.5 text-[10px] font-black uppercase text-[#2f6f4f]">
-                {recipe.category}
+                {normalizeTitleCase(recipe.category)}
               </span>
               <span className="flex items-center gap-1 rounded-full bg-slate-100 px-4 py-1.5 text-[10px] font-black uppercase text-slate-500">
                 <Users size={14} /> {displayPax} PAX
+              </span>
+              <span className="rounded-full bg-amber-50 px-4 py-1.5 text-[10px] font-black uppercase text-amber-700">
+                PHP {Number(recipe.price ?? 0).toFixed(2)} / Serving
               </span>
             </div>
           </div>

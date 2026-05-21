@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth, UserRole } from "@/context/AuthContext";
+import { resolveEffectiveRole, useAuth, UserRole } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { ReactNode, useEffect } from "react";
 
@@ -13,7 +13,8 @@ export default function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
-  const hasAccess = user && allowedRoles.includes(user.role);
+  const effectiveRole = user ? resolveEffectiveRole(user) : "";
+  const hasAccess = Boolean(user && allowedRoles.includes(effectiveRole as UserRole));
 
   useEffect(() => {
     if (!isLoading) {

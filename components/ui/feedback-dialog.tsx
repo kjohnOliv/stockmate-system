@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { AlertCircle, CheckCircle2, TriangleAlert } from "lucide-react";
 
 type FeedbackVariant = "success" | "error" | "warning" | "info";
@@ -14,6 +15,7 @@ interface FeedbackDialogProps {
   onConfirm: () => void;
   onCancel?: () => void;
   loading?: boolean;
+  children?: React.ReactNode;
 }
 
 const variantStyles: Record<FeedbackVariant, string> = {
@@ -40,13 +42,14 @@ export function FeedbackDialog({
   onConfirm,
   onCancel,
   loading = false,
+  children,
 }: FeedbackDialogProps) {
   if (!open) return null;
 
   const Icon = variantIcons[variant];
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl">
         <div className={`mb-5 flex items-start gap-3 rounded-2xl border p-4 ${variantStyles[variant]}`}>
           <Icon className="mt-0.5 h-5 w-5 shrink-0" />
@@ -55,6 +58,8 @@ export function FeedbackDialog({
             <p className="mt-1 text-sm font-semibold text-slate-600">{message}</p>
           </div>
         </div>
+
+        {children ? <div className="mb-5">{children}</div> : null}
 
         <div className="flex gap-3">
           {cancelLabel && onCancel ? (

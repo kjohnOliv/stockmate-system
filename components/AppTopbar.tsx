@@ -1,66 +1,61 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Menu } from "lucide-react";
+import { Bell } from "lucide-react";
 import { useState } from "react";
-import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifications } from "@/context/NotificationsContext";
 
 interface AppTopbarProps {
   onOpenSidebar: () => void;
   pendingCount?: number;
   pendingMealPlans?: number;
   lowStockCount?: number;
-  activePlanStatus?: string;
 }
 
-const TITLES: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/accounts": "System Accounts",
-  "/meal-directory": "Meal Directory",
-  "/student-menu": "Food Menu",
-  "/inventory": "Inventory",
-  "/meal-plan": "Meal Planner",
-  "/profile": "Profile",
-};
-
-export default function AppTopbar({ onOpenSidebar, pendingCount = 0, pendingMealPlans = 0, lowStockCount = 0, activePlanStatus, }: AppTopbarProps) {
-  const pathname = usePathname();
+export default function AppTopbar({ onOpenSidebar, pendingCount = 0, pendingMealPlans = 0, lowStockCount = 0 }: AppTopbarProps) {
   const { user } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
+  const { connectionState, notifications } = useNotifications();
 
-  const alertCount = pendingCount + pendingMealPlans + lowStockCount;
-  const title = TITLES[pathname] ?? "StockMate";
+  const alertCount = notifications.length + pendingCount + pendingMealPlans + lowStockCount;
+  const connectionLabel =
+    connectionState === "connected"
+      ? "Live"
+      : connectionState === "connecting" || connectionState === "reconnecting"
+      ? "Connecting"
+      : connectionState === "error"
+      ? "Disconnected"
+      : "Idle";
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="flex items-center justify-between px-4 md:px-6 py-4">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3 px-3 py-3 md:px-5">
+        <div className="flex min-w-0 items-center">
           <button
             onClick={onOpenSidebar}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-emerald-100 bg-white text-slate-700 shadow-sm"
+            className="inline-flex min-w-0 items-center rounded-2xl px-3 py-2 text-left transition hover:bg-slate-50"
+            aria-label="Toggle sidebar"
           >
-            <Menu size={20} />
+            <p className="truncate text-xs font-black uppercase tracking-[0.14em] text-slate-500 sm:text-sm md:text-base md:tracking-[0.2em]">
+              StockMate System
+            </p>
           </button>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">StockMate System</p>
-            <h1 className="text-xl font-black text-slate-800">{title}</h1>
-          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden md:block text-right">
-            <p className="text-sm font-bold text-slate-800">{user?.full_name || "User"}</p>
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="hidden max-w-[220px] text-right md:block lg:max-w-[280px]">
+            <p className="truncate text-sm font-bold text-slate-800">{user?.full_name || "User"}</p>
             <p className="text-xs text-slate-500 uppercase">{user?.role || "member"}</p>
           </div>
 
           <div className="relative">
             <button
               onClick={() => setShowNotifications((prev) => !prev)}
-              className="relative inline-flex items-center justify-center w-11 h-11 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700"
+            className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700"
               aria-label="Notifications"
             >
-              <Bell size={19} />
+              <Bell size={18} />
               {alertCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center">
                   {alertCount}
@@ -70,45 +65,36 @@ export default function AppTopbar({ onOpenSidebar, pendingCount = 0, pendingMeal
 
             {showNotifications && (
               <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 shadow-lg rounded-xl z-50">
-                <div className="p-3 border-b border-slate-100 font-bold">Notifications</div>
-                <ul className="max-h-64 overflow-y-auto">
-                  {pendingCount > 0 && (
-                    <li className="px-4 py-2 hover:bg-slate-50">
-                      <Link href="/accounts" className="flex items-center justify-between">
-                        <span>{pendingCount} pending account{pendingCount === 1 ? "" : "s"}</span>
-                        <span className="text-xs text-blue-600">Review</span>
+                <div className="flex items-center justify-between border-b border-slate-100 p-3">
+                  <span className="font-bold">Notifications</span>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${
+                      connectionState === "connected"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : connectionState === "connecting" || connectionState === "reconnecting"
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {connectionLabel}
+                  </span>
+                </div>
+                <ul className="soft-scrollbar max-h-64 overflow-y-auto">
+                  {notifications.map((notification) => (
+                    <li key={notification.id} className="border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50">
+                      <Link href={notification.href} className="block">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="truncate text-sm font-bold text-slate-800">{notification.title}</span>
+                          <span className="shrink-0 text-[10px] font-bold uppercase text-slate-400">
+                            {new Date(notification.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">{notification.message}</p>
                       </Link>
                     </li>
-                  )}
+                  ))}
 
-                  {pendingMealPlans > 0 && (
-                    <li className="px-4 py-2 hover:bg-slate-50">
-                      <Link href="/meal-plan" className="flex items-center justify-between">
-                        <span>{pendingMealPlans} pending meal plan{pendingMealPlans === 1 ? "" : "s"}</span>
-                        <span className="text-xs text-blue-600">Action</span>
-                      </Link>
-                    </li>
-                  )}
-
-                  {lowStockCount > 0 && (
-                    <li className="px-4 py-2 hover:bg-slate-50">
-                      <Link href="/inventory" className="flex items-center justify-between">
-                        <span>{lowStockCount} low stock item{lowStockCount === 1 ? "" : "s"}</span>
-                        <span className="text-xs text-blue-600">Check</span>
-                      </Link>
-                    </li>
-                  )}
-
-                  {activePlanStatus && (
-                    <li className="px-4 py-2 hover:bg-slate-50">
-                      <Link href="/student-menu" className="flex items-center justify-between">
-                        <span>Active menu status: {activePlanStatus}</span>
-                        <span className="text-xs text-blue-600">View</span>
-                      </Link>
-                    </li>
-                  )}
-
-                  {pendingCount === 0 && pendingMealPlans === 0 && lowStockCount === 0 && !activePlanStatus && (
+                  {notifications.length === 0 && (
                     <li className="px-4 py-3 text-center text-sm text-slate-500">No new notifications</li>
                   )}
                 </ul>

@@ -213,7 +213,7 @@ export default function RegisterPage() {
             <h2 className="text-2xl font-black text-slate-900">Account Request Sent</h2>
             <p className="mt-3 text-sm font-medium leading-6 text-slate-600">
               Your account is now pending admin review. Requested role: <span className="font-black text-[#2f6f4f]">{formData.requested_role.toUpperCase()}</span>.
-              Once approved, you can log in using your temporary password and the system will bring you directly to the admin dashboard after you change it.
+              Once approved, a temporary password will be sent to your email and the system will require you to change it after your first login.
             </p>
             <Link href="/login" className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-[#2f6f4f] px-4 py-3 text-sm font-black uppercase tracking-wide text-white transition hover:bg-[#285f44]">
               Go to Login

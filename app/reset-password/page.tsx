@@ -1,31 +1,37 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
-import { AlertNotice, FeedbackDialog } from "@/components/ui/feedback-dialog";
+import { ArrowLeft, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
+import { AlertNotice } from "@/components/ui/feedback-dialog";
 import { ApiClient } from "@/lib/api";
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = useMemo(() => (searchParams.get("email") || "").trim().toLowerCase(), [searchParams]);
   const isRequiredReset = searchParams.get("required") === "1";
+  const otp = useMemo(() => (searchParams.get("otp") || "").trim(), [searchParams]);
 
   const [passwords, setPasswords] = useState({ old: "", new: "", confirm: "" });
+  const [showPasswords, setShowPasswords] = useState({ old: false, new: false, confirm: false });
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" | "" }>({
     text: "",
     type: "",
   });
-  const [dialogOpen, setDialogOpen] = useState(false);
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!passwords.old.trim()) {
+    if (isRequiredReset && !passwords.old.trim()) {
       setMessage({ text: "Temporary password is required.", type: "error" });
+      return;
+    }
+
+    if (!isRequiredReset && !otp) {
+      setMessage({ text: "Verification code is required before changing password.", type: "error" });
       return;
     }
 
@@ -48,6 +54,8 @@ export default function ResetPasswordPage() {
         password: passwords.new,
         new_password: passwords.new,
         newPassword: passwords.new,
+        otp,
+        code: otp,
         old_password: passwords.old,
         oldPassword: passwords.old,
         current_password: passwords.old,
@@ -55,13 +63,12 @@ export default function ResetPasswordPage() {
       };
 
       await ApiClient.post("/auth/change-password", payload);
-      setMessage({ text: "Password updated successfully.", type: "success" });
-      setDialogOpen(true);
+      setMessage({ text: "Password updated successfully. Redirecting to login...", type: "success" });
+      setTimeout(() => {
+        router.replace("/login");
+      }, 3000);
     } catch (err: unknown) {
-      setMessage({
-        text: err instanceof Error ? err.message : "Failed to update password.",
-        type: "error",
-      });
+      setMessage({ text: err instanceof Error ? err.message : "Failed to update password.", type: "error" });
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +105,7 @@ export default function ResetPasswordPage() {
           <p className="mt-2 text-sm font-medium text-slate-500">
             {isRequiredReset
               ? `Use the temporary password for ${email}, then set your new password.`
-              : `Update the password for ${email}.`}
+              : `Use the verified code for ${email}, then set your new password.`}
           </p>
         </div>
 
@@ -116,50 +123,78 @@ export default function ResetPasswordPage() {
         )}
 
         <form onSubmit={handleChangePassword} className="space-y-4">
-          <input
-            type="password"
-            placeholder="Temporary Password"
-            className="w-full rounded-2xl border border-slate-200 p-4 font-bold outline-none focus:border-emerald-500"
-            value={passwords.old}
-            onChange={(e) => setPasswords((current) => ({ ...current, old: e.target.value }))}
-            required
-          />
-          <input
-            type="password"
-            placeholder="New Password"
-            className="w-full rounded-2xl border border-slate-200 p-4 font-bold outline-none focus:border-emerald-500"
-            value={passwords.new}
-            onChange={(e) => setPasswords((current) => ({ ...current, new: e.target.value }))}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Confirm New Password"
-            className="w-full rounded-2xl border border-slate-200 p-4 font-bold outline-none focus:border-emerald-500"
-            value={passwords.confirm}
-            onChange={(e) => setPasswords((current) => ({ ...current, confirm: e.target.value }))}
-            required
-          />
+          {isRequiredReset && (
+            <div className="relative">
+              <input
+                type={showPasswords.old ? "text" : "password"}
+                placeholder="Current Password"
+                className="w-full rounded-2xl border border-slate-200 p-4 pr-12 font-bold outline-none focus:border-emerald-500"
+                value={passwords.old}
+                onChange={(e) => setPasswords((current) => ({ ...current, old: e.target.value }))}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswords((current) => ({ ...current, old: !current.old }))}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                aria-label={showPasswords.old ? "Hide current password" : "Show current password"}
+              >
+                {showPasswords.old ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          )}
+          <div className="relative">
+            <input
+              type={showPasswords.new ? "text" : "password"}
+              placeholder="New Password"
+              className="w-full rounded-2xl border border-slate-200 p-4 pr-12 font-bold outline-none focus:border-emerald-500"
+              value={passwords.new}
+              onChange={(e) => setPasswords((current) => ({ ...current, new: e.target.value }))}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPasswords((current) => ({ ...current, new: !current.new }))}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+              aria-label={showPasswords.new ? "Hide new password" : "Show new password"}
+            >
+              {showPasswords.new ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          <div className="relative">
+            <input
+              type={showPasswords.confirm ? "text" : "password"}
+              placeholder="Confirm Password"
+              className="w-full rounded-2xl border border-slate-200 p-4 pr-12 font-bold outline-none focus:border-emerald-500"
+              value={passwords.confirm}
+              onChange={(e) => setPasswords((current) => ({ ...current, confirm: e.target.value }))}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPasswords((current) => ({ ...current, confirm: !current.confirm }))}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+              aria-label={showPasswords.confirm ? "Hide confirm password" : "Show confirm password"}
+            >
+              {showPasswords.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           <button
             disabled={isLoading}
             className="w-full rounded-2xl bg-[#2f6f4f] py-4 font-black uppercase tracking-wide text-white transition hover:bg-[#285f44] disabled:opacity-70"
           >
-            {isLoading ? <Loader2 className="mx-auto animate-spin" /> : "Change Password"}
+            {isLoading ? <Loader2 className="mx-auto animate-spin" /> : "Save Changes"}
           </button>
         </form>
       </div>
-
-      <FeedbackDialog
-        open={dialogOpen}
-        title="Password Updated"
-        message="Your password has been changed successfully. Continue to login."
-        variant="success"
-        confirmLabel="Go to Login"
-        onConfirm={() => {
-          setDialogOpen(false);
-          router.push("/login");
-        }}
-      />
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

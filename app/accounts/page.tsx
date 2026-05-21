@@ -3,9 +3,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Eye, Loader2, Mail, Search, Shield, UserCheck, UserMinus, UserRoundX, Users } from "lucide-react";
 import { ApiClient } from "@/lib/api";
+import { useNotifications } from "@/context/NotificationsContext";
 import RoleGuard from "@/components/auth/RoleGuard";
 import { FeedbackDialog } from "@/components/ui/feedback-dialog";
 import { AppSelect } from "@/components/ui/app-select";
+import { Input } from "@/components/ui/input";
 
 interface UserRecord {
   id: number;
@@ -24,6 +26,77 @@ interface UserRecord {
 }
 
 const PAGE_SIZE = 5;
+const ACCOUNT_LIST_ENDPOINTS = ["/api/users", "/auth/accounts"];
+const PENDING_ACCOUNT_ENDPOINTS = ["/api/users/pending", "/auth/pending-accounts"];
+
+function extractListPayload(payload: unknown) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.data)) return record.data;
+  }
+  return [];
+}
+
+async function fetchFirstSuccessfulList(endpoints: string[]) {
+  for (const endpoint of endpoints) {
+    try {
+      const response = await ApiClient.get(endpoint);
+      const payload = await response.json().catch(() => null);
+      return extractListPayload(payload);
+    } catch {
+      continue;
+    }
+  }
+
+  return [];
+}
+
+async function patchFirstSuccessfulStatus(
+  userId: number,
+  body: Record<string, unknown>
+) {
+  const endpoints = [`/api/users/${userId}/status`, `/auth/accounts/${userId}/status`];
+  let lastError: unknown;
+
+  for (const endpoint of endpoints) {
+    try {
+      return await ApiClient.patch(endpoint, body);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("Failed to update account status.");
+}
+
+function extractTemporaryPassword(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+
+  const record = payload as Record<string, unknown>;
+  const directKeys = [
+    "temporary_password",
+    "temporaryPassword",
+    "temp_password",
+    "tempPassword",
+    "generated_password",
+    "generatedPassword",
+    "password",
+  ];
+
+  for (const key of directKeys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+
+  const nestedCandidates = [record.data, record.user, record.account];
+  for (const candidate of nestedCandidates) {
+    const nestedPassword = extractTemporaryPassword(candidate);
+    if (nestedPassword) return nestedPassword;
+  }
+
+  return "";
+}
 
 function titleCase(value: string) {
   return value
@@ -47,9 +120,11 @@ function getFullName(user: UserRecord) {
 }
 
 export default function AccountsPage() {
+  const { refreshVersions } = useNotifications();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All Status");
+  const [roleFilter, setRoleFilter] = useState("All Roles");
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
@@ -59,31 +134,29 @@ export default function AccountsPage() {
     message: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [approvalNotice, setApprovalNotice] = useState<{ open: boolean; email: string; temporaryPassword: string; emailDelivered: boolean; emailError: string } | null>(null);
 
   const fetchAccounts = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, pendingRes] = await Promise.allSettled([ApiClient.get("/api/users"), ApiClient.get("/api/users/pending")]);
+      const [usersList, pendingList] = await Promise.all([
+        fetchFirstSuccessfulList(ACCOUNT_LIST_ENDPOINTS),
+        fetchFirstSuccessfulList(PENDING_ACCOUNT_ENDPOINTS),
+      ]);
 
       const allUsers: UserRecord[] = [];
 
-      if (usersRes.status === "fulfilled") {
-        const result = await usersRes.value.json();
-        const list = result?.success ? result.data : result?.data ?? result;
-        if (Array.isArray(list)) allUsers.push(...list);
-      }
-
-      if (pendingRes.status === "fulfilled") {
-        const result = await pendingRes.value.json();
-        const list = result?.success ? result.data : result?.data ?? result;
-        if (Array.isArray(list)) {
-          list.forEach((entry) => {
-            if (!allUsers.some((user) => user.id === entry.id)) {
-              allUsers.push(entry);
-            }
-          });
+      usersList.forEach((entry) => {
+        if (entry && typeof entry === "object") {
+          allUsers.push(entry as UserRecord);
         }
-      }
+      });
+
+      pendingList.forEach((entry) => {
+        if (entry && typeof entry === "object" && !allUsers.some((user) => user.id === (entry as UserRecord).id)) {
+          allUsers.push(entry as UserRecord);
+        }
+      });
 
       setUsers(allUsers);
     } catch (err) {
@@ -98,25 +171,31 @@ export default function AccountsPage() {
     fetchAccounts();
   }, []);
 
+  useEffect(() => {
+    fetchAccounts();
+  }, [refreshVersions.users]);
+
   const filteredUsers = useMemo(() => {
     const lowered = searchTerm.toLowerCase();
     return users.filter((user) => {
       const computedStatus = normalizeStatus(user);
+      const computedRole = String(user.role || user.requested_role || "").trim().toLowerCase();
       const matchesSearch =
         getFullName(user).toLowerCase().includes(lowered) ||
         (user.username || "").toLowerCase().includes(lowered) ||
         (user.email || "").toLowerCase().includes(lowered);
       const matchesStatus = statusFilter === "All Status" || computedStatus === statusFilter.toLowerCase();
-      return matchesSearch && matchesStatus;
+      const matchesRole = roleFilter === "All Roles" || computedRole === roleFilter.toLowerCase();
+      return matchesSearch && matchesStatus && matchesRole;
     });
-  }, [searchTerm, statusFilter, users]);
+  }, [roleFilter, searchTerm, statusFilter, users]);
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
   const paginatedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, statusFilter]);
+  }, [roleFilter, searchTerm, statusFilter]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -126,17 +205,55 @@ export default function AccountsPage() {
     setConfirmState({ open: true, title, message, action });
   };
 
-  const handleStatusChange = async (user: UserRecord, nextStatus: "pending" | "active" | "inactive", nextRole?: string) => {
+  const handleStatusChange = async (user: UserRecord, nextStatus: "pending" | "active" | "inactive" | "approved", nextRole?: string) => {
     setIsSubmitting(true);
+    const isApprovingPendingUser = normalizeStatus(user) === "pending" && (nextStatus === "active" || nextStatus === "approved");
+    const nextIsActive = isApprovingPendingUser || nextStatus === "active";
     try {
-      await ApiClient.patch(`/api/users/${user.id}/status`, {
-        status: nextStatus,
+      const response = await patchFirstSuccessfulStatus(user.id, {
+        status: isApprovingPendingUser ? "approved" : nextStatus,
         role: nextRole ?? user.role ?? user.requested_role,
         requested_role: user.requested_role,
-        is_active: nextStatus === "active",
+        is_active: nextIsActive,
+        must_change_password: isApprovingPendingUser,
+        mustChangePassword: isApprovingPendingUser,
+        send_temp_password_email: isApprovingPendingUser,
+        sendTempPasswordEmail: isApprovingPendingUser,
       });
+      const payload = await response.json().catch(() => null);
+      const backendTemporaryPassword = extractTemporaryPassword(payload);
+      const emailDelivered = Boolean(
+        payload &&
+          typeof payload === "object" &&
+          "email" in payload &&
+          payload.email &&
+          typeof payload.email === "object" &&
+          "Delivered" in (payload.email as Record<string, unknown>)
+          ? (payload.email as Record<string, unknown>).Delivered
+          : payload &&
+              typeof payload === "object" &&
+              "email" in payload &&
+              payload.email &&
+              typeof payload.email === "object" &&
+              "delivered" in (payload.email as Record<string, unknown>)
+            ? (payload.email as Record<string, unknown>).delivered
+            : false
+      );
+      const emailError =
+        payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).email_error === "string"
+          ? String((payload as Record<string, unknown>).email_error)
+          : "";
       await fetchAccounts();
-      setSelectedUser((current) => (current?.id === user.id ? { ...user, status: nextStatus, is_active: nextStatus === "active" } : current));
+      setSelectedUser((current) => (current?.id === user.id ? { ...user, status: isApprovingPendingUser ? "approved" : nextStatus, is_active: nextIsActive } : current));
+      if (isApprovingPendingUser && backendTemporaryPassword) {
+        setApprovalNotice({
+          open: true,
+          email: user.email,
+          temporaryPassword: backendTemporaryPassword,
+          emailDelivered,
+          emailError,
+        });
+      }
     } catch (error) {
       console.error("User status update failed", error);
     } finally {
@@ -147,39 +264,51 @@ export default function AccountsPage() {
 
   return (
     <RoleGuard allowedRoles={["admin"]}>
-      <div className="min-h-screen bg-[#f4f5ef] p-6 md:p-8">
+      <div className="min-h-full bg-[#f4f5ef] p-4 md:p-5">
         <div className="mx-auto max-w-7xl">
-          <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div className="mb-4">
             <div>
               <h1 className="text-4xl font-black tracking-tight text-slate-900">Users</h1>
               <p className="mt-2 text-sm font-medium text-[#2f6f4f]">Manage requested access, activation, and account visibility.</p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="relative min-w-[280px]">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Search full name, username, or email"
-                  className="w-full rounded-2xl border border-emerald-100 bg-white py-3 pl-12 pr-4 font-semibold outline-none transition focus:border-emerald-500"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              <AppSelect
-                value={statusFilter}
-                onValueChange={setStatusFilter}
-                className="min-w-[180px] px-4 py-3 font-semibold"
-                options={[
-                  { label: "All Status", value: "All Status" },
-                  { label: "Pending", value: "pending" },
-                  { label: "Active", value: "active" },
-                  { label: "Inactive", value: "inactive" },
-                ]}
-              />
-            </div>
           </div>
 
-          <div className="overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-[0_20px_60px_rgba(47,111,79,0.08)]">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row">
+            <div className="relative w-full flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <Input
+                type="text"
+                placeholder="Search full name, username, or email"
+                className="app-search-field"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <AppSelect
+              value={statusFilter}
+              onValueChange={setStatusFilter}
+              className="w-full lg:w-auto lg:min-w-[220px] px-4 py-3 font-semibold"
+              options={[
+                { label: "All Status", value: "All Status" },
+                { label: "Pending", value: "pending" },
+                { label: "Active", value: "active" },
+                { label: "Inactive", value: "inactive" },
+              ]}
+            />
+            <AppSelect
+              value={roleFilter}
+              onValueChange={setRoleFilter}
+              className="w-full lg:w-auto lg:min-w-[220px] px-4 py-3 font-semibold"
+              options={[
+                { label: "All Roles", value: "All Roles" },
+                { label: "Admin", value: "admin" },
+                { label: "Cook", value: "cook" },
+                { label: "Staff", value: "staff" },
+              ]}
+            />
+          </div>
+
+          <div className="app-table-shell">
             {isLoading ? (
               <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
                 <Loader2 className="h-10 w-10 animate-spin text-[#2f6f4f]" />
@@ -188,16 +317,16 @@ export default function AccountsPage() {
             ) : (
               <>
                 <div className="hidden-scrollbar overflow-x-auto">
-                  <table className="w-full min-w-[1100px] text-left">
-                    <thead className="table-header-emerald border-b border-emerald-100 text-[11px] font-black uppercase tracking-[0.18em] text-[#2f6f4f]">
+                  <table className="w-full min-w-[1080px] text-left">
+                    <thead className="table-header-emerald border-b border-emerald-100 text-[10px] font-black uppercase tracking-[0.16em] text-[#2f6f4f]">
                       <tr>
-                        <th className="px-6 py-4">Full Name</th>
-                        <th className="px-6 py-4">Username</th>
-                        <th className="px-6 py-4">Email</th>
-                        <th className="px-6 py-4">Assigned Role</th>
-                        <th className="px-6 py-4">Requested Role</th>
-                        <th className="px-6 py-4">Account Status</th>
-                        <th className="px-6 py-4 text-center">Actions</th>
+                        <th className="px-5 py-3.5">Full Name</th>
+                        <th className="px-5 py-3.5">Username</th>
+                        <th className="px-5 py-3.5">Email</th>
+                        <th className="px-5 py-3.5">Assigned Role</th>
+                        <th className="px-5 py-3.5">Requested Role</th>
+                        <th className="px-5 py-3.5">Account Status</th>
+                        <th className="px-5 py-3.5 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm">
@@ -213,24 +342,24 @@ export default function AccountsPage() {
 
                           return (
                             <tr key={user.id} className="border-b border-slate-100 align-top last:border-b-0">
-                              <td className="px-6 py-5 font-black text-slate-900">{titleCase(getFullName(user))}</td>
-                              <td className="px-6 py-5 font-semibold text-slate-600">@{user.username}</td>
-                              <td className="px-6 py-5">
+                              <td className="px-5 py-4 font-black text-slate-900">{titleCase(getFullName(user))}</td>
+                              <td className="px-5 py-4 font-semibold text-slate-600">@{user.username}</td>
+                              <td className="px-5 py-4">
                                 <span className="inline-flex items-center gap-2 font-semibold text-slate-600">
                                   <Mail size={14} className="text-[#2f6f4f]" /> {user.email}
                                 </span>
                               </td>
-                              <td className="px-6 py-5">
+                              <td className="px-5 py-4">
                                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black uppercase text-[#2f6f4f]">
                                   {user.role || "Unassigned"}
                                 </span>
                               </td>
-                              <td className="px-6 py-5">
+                              <td className="px-5 py-4">
                                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase text-slate-600">
                                   {user.requested_role || user.role || "N/A"}
                                 </span>
                               </td>
-                              <td className="px-6 py-5">
+                              <td className="px-5 py-4">
                                 <span
                                   className={`rounded-full px-3 py-1 text-xs font-black uppercase ${
                                     computedStatus === "pending"
@@ -243,7 +372,7 @@ export default function AccountsPage() {
                                   {computedStatus}
                                 </span>
                               </td>
-                              <td className="px-6 py-5">
+                              <td className="px-5 py-4">
                                 <div className="flex items-center justify-center gap-2">
                                   <button
                                     type="button"
@@ -261,8 +390,8 @@ export default function AccountsPage() {
                                         onClick={() =>
                                           openConfirm(
                                             "Accept User Request",
-                                            `Approve ${getFullName(user)} as ${user.requested_role || "staff"}?`,
-                                            () => handleStatusChange(user, "active", user.requested_role || "staff")
+                                            `Approve ${getFullName(user)} as ${user.requested_role || "staff"} and send a temporary password by email?`,
+                                            () => handleStatusChange(user, "approved", user.requested_role || "staff")
                                           )
                                         }
                                         className="rounded-xl bg-emerald-50 p-2 text-emerald-700 transition hover:bg-emerald-100"
@@ -330,7 +459,7 @@ export default function AccountsPage() {
                   </table>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4">
+                <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3.5">
                   <p className="text-sm font-semibold text-slate-500">
                     Showing {(page - 1) * PAGE_SIZE + (paginatedUsers.length ? 1 : 0)}-{(page - 1) * PAGE_SIZE + paginatedUsers.length} of {filteredUsers.length}
                   </p>
@@ -363,45 +492,45 @@ export default function AccountsPage() {
 
         {selectedUser && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-2xl rounded-[2rem] border border-emerald-100 bg-white p-8 shadow-2xl">
-              <div className="mb-6 flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-[#2f6f4f]">
+            <div className="w-full max-w-2xl rounded-[1.5rem] border border-emerald-100 bg-white p-6 shadow-2xl">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-[#2f6f4f]">
                   <Users size={26} />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-black text-slate-900">{titleCase(getFullName(selectedUser))}</h2>
+                  <h2 className="text-xl font-black text-slate-900">{titleCase(getFullName(selectedUser))}</h2>
                   <p className="text-sm font-semibold text-slate-500">User request details</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-3.5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Username</p>
                   <p className="mt-2 text-sm font-bold text-slate-800">@{selectedUser.username}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="rounded-xl bg-slate-50 p-3.5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Email</p>
                   <p className="mt-2 text-sm font-bold text-slate-800">{selectedUser.email}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="rounded-xl bg-slate-50 p-3.5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Requested Role</p>
                   <p className="mt-2 text-sm font-bold text-[#2f6f4f]">{(selectedUser.requested_role || "N/A").toUpperCase()}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="rounded-xl bg-slate-50 p-3.5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Assigned Role</p>
                   <p className="mt-2 text-sm font-bold text-slate-800">{(selectedUser.role || "N/A").toUpperCase()}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="rounded-xl bg-slate-50 p-3.5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Contact Number</p>
                   <p className="mt-2 text-sm font-bold text-slate-800">{selectedUser.contact_number || "Not provided"}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="rounded-xl bg-slate-50 p-3.5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Status</p>
                   <p className="mt-2 text-sm font-bold text-slate-800">{normalizeStatus(selectedUser).toUpperCase()}</p>
                 </div>
               </div>
 
-              <div className="mt-6 flex gap-3">
+              <div className="mt-5 flex gap-3">
                 <button
                   type="button"
                   onClick={() => setSelectedUser(null)}
@@ -425,6 +554,32 @@ export default function AccountsPage() {
           onConfirm={() => confirmState.action?.()}
           onCancel={() => !isSubmitting && setConfirmState({ open: false, title: "", message: "" })}
         />
+
+        <FeedbackDialog
+          open={Boolean(approvalNotice?.open)}
+          title="Temporary Password Generated"
+          message={
+            approvalNotice
+              ? approvalNotice.emailDelivered
+                ? `The account for ${approvalNotice.email} was approved. The temporary password was generated and the backend reported that the email was delivered.`
+                : `The account for ${approvalNotice.email} was approved and a temporary password was generated, but the backend did not confirm email delivery.`
+              : ""
+          }
+          variant={approvalNotice?.emailDelivered ? "success" : "warning"}
+          confirmLabel="OK"
+          onConfirm={() => setApprovalNotice(null)}
+        >
+          {approvalNotice ? (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm font-semibold text-slate-700">
+              Temporary password: <span className="font-black text-slate-900">{approvalNotice.temporaryPassword}</span>
+            </div>
+          ) : null}
+          {approvalNotice && !approvalNotice.emailDelivered && approvalNotice.emailError ? (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+              Email error: {approvalNotice.emailError}
+            </div>
+          ) : null}
+        </FeedbackDialog>
       </div>
     </RoleGuard>
   );

@@ -34,6 +34,15 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+export function resolveEffectiveRole(user: Pick<User, "role" | "requested_role"> | null) {
+  const role = String(user?.role || "").toLowerCase().trim();
+  const requestedRole = String(user?.requested_role || "").toLowerCase().trim();
+
+  if (role === "admin" || role === "cook" || role === "staff") return role;
+  if (requestedRole === "admin" || requestedRole === "cook" || requestedRole === "staff") return requestedRole;
+  return role || requestedRole;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,9 +108,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isAdmin = user?.role === 'admin';
-  const isCook = user?.role === 'cook';
-  const isStaff = user?.role === 'staff';
+  const effectiveRole = resolveEffectiveRole(user);
+  const isAdmin = effectiveRole === 'admin';
+  const isCook = effectiveRole === 'cook';
+  const isStaff = effectiveRole === 'staff';
 
   return (
     <AuthContext.Provider value={{ user, login, logout, isLoading, isAdmin, isCook, isStaff, updateUser }}>

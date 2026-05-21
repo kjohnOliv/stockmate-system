@@ -48,6 +48,8 @@
 }
 
 :root {
+  --font-sans: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --font-geist-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -120,11 +122,17 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overflow: hidden;
+  }
+  body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
   }
 }
 
@@ -136,6 +144,26 @@ body.app-modal-open [data-app-sidebar="true"] {
 @layer utilities {
   .table-header-emerald {
     background: linear-gradient(90deg, #fff6c7 0%, #f5f9dc 50%, #edf8ea 100%);
+  }
+
+  .app-surface {
+    @apply rounded-[1.5rem] border border-emerald-100 bg-white shadow-[0_16px_42px_rgba(47,111,79,0.08)];
+  }
+
+  .app-table-shell {
+    @apply overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-white shadow-[0_16px_42px_rgba(47,111,79,0.08)];
+  }
+
+  .app-stat-card {
+    @apply rounded-xl border border-emerald-100 bg-white px-3.5 py-3 shadow-sm;
+  }
+
+  .app-subtle-panel {
+    @apply rounded-xl border border-slate-200 bg-slate-50/70;
+  }
+
+  .app-search-field {
+    @apply h-11 rounded-xl border-emerald-100 bg-white py-2.5 pl-11 pr-4 text-sm font-semibold text-slate-800 shadow-sm focus-visible:border-emerald-500 focus-visible:ring-4 focus-visible:ring-emerald-100;
   }
 
   .app-select {
@@ -162,5 +190,34 @@ body.app-modal-open [data-app-sidebar="true"] {
     width: 0;
     height: 0;
     display: none;
+  }
+
+  .soft-scrollbar {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(47, 111, 79, 0) transparent;
+  }
+
+  .soft-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .soft-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .soft-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(47, 111, 79, 0);
+    transition: background-color 180ms ease;
+  }
+
+  .soft-scrollbar:hover {
+    scrollbar-color: rgba(47, 111, 79, 0.35) transparent;
+  }
+
+  .soft-scrollbar:hover::-webkit-scrollbar-thumb {
+    background: rgba(47, 111, 79, 0.35);
   }
 }

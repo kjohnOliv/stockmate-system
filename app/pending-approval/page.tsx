@@ -30,7 +30,7 @@ export default function PendingApprovalPage() {
             This usually takes less than 24 hours. You will be able to log in once your status is updated to &quot;Approved&quot;.
           </p>
           <p className="text-xs font-bold text-slate-600 leading-relaxed">
-            After approval, use the temporary password <span className="text-[#2f6f4f]">stockmate123</span> to sign in, then change it to your own password.
+            After approval, a temporary password will be sent to your email. Use that temporary password to sign in, then change it to your own password.
           </p>
         </div>
 

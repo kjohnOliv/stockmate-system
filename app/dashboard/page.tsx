@@ -13,11 +13,13 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient, isPasswordChangeRequiredErrorMessage } from "@/lib/api";
-import { normalizeMealPlanRecords, normalizePlanStatus } from "@/lib/meal-planning";
+import { useNotifications } from "@/context/NotificationsContext";
+import { ApiClient, isAccessDeniedError, isPasswordChangeRequiredErrorMessage } from "@/lib/api";
+import { formatLocalDateKey, normalizeActiveMealPlanPayload, normalizeMealPlanRecords, normalizePlanStatus } from "@/lib/meal-planning";
 
 export default function Dashboard() {
   const { user, isLoading: authLoading, isAdmin, isCook, isStaff } = useAuth();
+  const { refreshVersions } = useNotifications();
   const router = useRouter();
 
   const [mounted, setMounted] = useState(false);
@@ -39,55 +41,71 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const requests: Promise<Response>[] = [ApiClient.get("/api/dashboard/overview")];
-        if (isAdmin) requests.unshift(ApiClient.get("/api/users"));
-        if (isStaff) requests.push(ApiClient.get("/api/meal-plans/active"));
-        else requests.push(ApiClient.get("/api/meal-plans"));
-        const responses = await Promise.all(requests);
-
-        const userRes = isAdmin ? responses[0] : null;
-        const invRes = responses[isAdmin ? 1 : 0];
-        const planRes = responses[isAdmin ? 2 : 1];
-
-        if (userRes?.ok) {
-          const userResult = await userRes.json();
-          const users = Array.isArray(userResult?.data) ? userResult.data : [];
-          setUserCount(users.length);
-        } else if (!isAdmin) {
+        if (isAdmin) {
+          try {
+            const userRes = await ApiClient.get("/api/users");
+            if (userRes.ok) {
+              const userResult = await userRes.json();
+              const users = Array.isArray(userResult?.data) ? userResult.data : [];
+              setUserCount(users.length);
+            } else {
+              setUserCount(0);
+            }
+          } catch (err) {
+            if (!isAccessDeniedError(err)) throw err;
+            setUserCount(0);
+          }
+        } else {
           setUserCount(0);
         }
 
-        if (invRes.ok) {
-          const invResult = await invRes.json();
-          if (invResult.success && invResult.data) {
-            setInvStats({
-              inStock: invResult.data.inStock || 0,
-              lowStock: invResult.data.lowStock || 0,
-              noStock: invResult.data.noStock || 0,
-            });
+        try {
+          const invRes = await ApiClient.get("/api/dashboard/overview");
+          if (invRes.ok) {
+            const invResult = await invRes.json();
+            if (invResult.success && invResult.data) {
+              setInvStats({
+                inStock: invResult.data.inStock || 0,
+                lowStock: invResult.data.lowStock || 0,
+                noStock: invResult.data.noStock || 0,
+              });
+            } else {
+              setInvStats({ inStock: 0, lowStock: 0, noStock: 0 });
+            }
           }
+        } catch (err) {
+          if (!isAccessDeniedError(err)) throw err;
+          setInvStats({ inStock: 0, lowStock: 0, noStock: 0 });
         }
 
-        if (planRes.ok) {
-          const planResult = await planRes.json();
-          const rawPlans = isStaff
-            ? planResult?.data
-              ? [planResult.data]
-              : Array.isArray(planResult)
-              ? planResult
-              : planResult
-              ? [planResult]
-              : []
-            : planResult?.success
-            ? planResult.data
-            : planResult?.data ?? planResult;
-          const plans = normalizeMealPlanRecords(rawPlans);
-          const today = new Date().toISOString().slice(0, 10);
-          setPlanCount({
-            pending: isStaff ? 0 : plans.filter((plan) => normalizePlanStatus(plan.status) === "pending").length,
-            approved: plans.filter((plan) => normalizePlanStatus(plan.status) === "approved").length,
-            current: plans.filter((plan) => plan.dateFrom <= today && plan.dateTo >= today).length,
-          });
+        try {
+          const planRes = await ApiClient.get(isStaff ? "/api/meal-plans/active" : "/api/meal-plans");
+          if (planRes.ok) {
+            const planResult = await planRes.json();
+            const rawPlans = isStaff
+              ? planResult?.data
+                ? [planResult.data]
+                : Array.isArray(planResult)
+                ? planResult
+                : planResult
+                ? [planResult]
+                : []
+              : planResult?.success
+              ? planResult.data
+              : planResult?.data ?? planResult;
+            const plans = isStaff ? normalizeActiveMealPlanPayload(rawPlans) : normalizeMealPlanRecords(rawPlans);
+            const today = formatLocalDateKey();
+            setPlanCount({
+              pending: isStaff ? 0 : plans.filter((plan) => normalizePlanStatus(plan.status) === "pending").length,
+              approved: plans.filter((plan) => normalizePlanStatus(plan.status) === "approved").length,
+              current: plans.filter((plan) => plan.dateFrom <= today && plan.dateTo >= today).length,
+            });
+          } else {
+            setPlanCount({ pending: 0, approved: 0, current: 0 });
+          }
+        } catch (err) {
+          if (!isAccessDeniedError(err)) throw err;
+          setPlanCount({ pending: 0, approved: 0, current: 0 });
         }
       } catch (err) {
         if (err instanceof Error && isPasswordChangeRequiredErrorMessage(err.message)) return;
@@ -98,7 +116,7 @@ export default function Dashboard() {
     };
 
     if (user) fetchDashboardData();
-  }, [isAdmin, isStaff, user]);
+  }, [isAdmin, isStaff, refreshVersions.dashboard, refreshVersions.inventory, refreshVersions.mealPlans, refreshVersions.users, user]);
 
   const stats = useMemo(
     () => [
@@ -119,13 +137,13 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-10">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-slate-800">
-            Hello, <span className="text-[#6BCB3B]">{user?.full_name || "User"}</span>
+    <div className="mx-auto w-full max-w-7xl space-y-3 lg:space-y-4">
+      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
+        <div className="min-w-0">
+          <h1 className="text-[1.8rem] font-black leading-tight text-slate-800 lg:text-[2.2rem]">
+            Hello, <span className="break-words text-[#6BCB3B]">{user?.full_name || "User"}</span>
           </h1>
-          <p className="text-slate-500 font-medium italic mt-2">
+          <p className="mt-1 max-w-4xl text-[13px] font-medium italic text-slate-500">
             {isAdmin && "Owner dashboard for account approvals, meal plan approvals, budget review, and menu management."}
             {isCook && "Kitchen dashboard for recipe management, inventory item additions, and weekly meal plan creation."}
             {isStaff && "Operations dashboard for inventory stock management, checklist updates, and weekly menu viewing."}
@@ -133,123 +151,135 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
+          <div key={idx} className="relative overflow-hidden rounded-xl border border-slate-100 bg-white p-3.5 shadow-sm lg:p-4">
             {isDataLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
                 <Loader2 className="animate-spin text-slate-400" size={20} />
               </div>
             )}
-            <div className={`mb-4 p-3 rounded-xl w-fit ${stat.tone}`}>{stat.icon}</div>
+            <div className={`mb-2.5 w-fit rounded-lg p-2 ${stat.tone}`}>{stat.icon}</div>
             <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{stat.label}</p>
-            <h3 className="text-3xl font-black text-slate-800 mt-1">{stat.value}</h3>
+            <h3 className="mt-0.5 text-[1.8rem] font-black text-slate-800">{stat.value}</h3>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="font-black text-slate-800 uppercase mb-6">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-sm lg:p-4">
+          <h2 className="mb-3 font-black uppercase text-slate-800">
             {isAdmin ? "Quick Actions" : "Role Snapshot"}
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={`grid grid-cols-1 gap-2.5 md:grid-cols-2 ${isAdmin ? "xl:grid-cols-3" : ""}`}>
             {isAdmin && (
               <>
-                <button onClick={() => router.push("/accounts")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/accounts")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Review Accounts</p>
-                  <p className="text-sm text-slate-500 mt-1">{userCount} users in the system</p>
+                  <p className="mt-1 text-[13px] text-slate-500">{userCount} users in the system</p>
                 </button>
-                <button onClick={() => router.push("/meal-plan")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/meal-plan")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Pending Meal Plans</p>
-                  <p className="text-sm text-slate-500 mt-1">{planCount.pending} plans need admin action</p>
+                  <p className="mt-1 text-[13px] text-slate-500">{planCount.pending} plans need admin action</p>
                 </button>
-                <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/inventory")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Inventory View</p>
-                  <p className="text-sm text-slate-500 mt-1">{invStats.lowStock} low-stock items to review</p>
+                  <p className="mt-1 text-[13px] text-slate-500">{invStats.lowStock} low-stock items to review</p>
                 </button>
-                <button onClick={() => router.push("/meal-directory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/meal-directory")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Meal Directory View</p>
-                  <p className="text-sm text-slate-500 mt-1">Review recipes without editing directory items</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Review recipes without editing directory items</p>
                 </button>
-                <button onClick={() => router.push("/student-menu")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/student-menu")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Manage Menu</p>
-                  <p className="text-sm text-slate-500 mt-1">Review the published menu based on approved plans</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Review the published menu based on approved plans</p>
                 </button>
               </>
             )}
 
             {isCook && (
               <>
-                <button onClick={() => router.push("/meal-plan")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/meal-plan")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Submit Meal Plan</p>
-                  <p className="text-sm text-slate-500 mt-1">{planCount.pending} plans currently awaiting approval</p>
+                  <p className="mt-1 text-[13px] text-slate-500">{planCount.pending} plans currently awaiting approval</p>
                 </button>
-                <button onClick={() => router.push("/meal-directory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/meal-directory")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Manage Recipes</p>
-                  <p className="text-sm text-slate-500 mt-1">Keep menu selections aligned with inventory</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Keep menu selections aligned with inventory</p>
                 </button>
-                <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/inventory")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Add Inventory Item</p>
-                  <p className="text-sm text-slate-500 mt-1">Add new ingredients that meal planning needs</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Add new ingredients that meal planning needs</p>
                 </button>
-                <button onClick={() => router.push("/student-menu")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/student-menu")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">View Menu</p>
-                  <p className="text-sm text-slate-500 mt-1">Preview the published menu without editing it</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Preview the published menu without editing it</p>
                 </button>
               </>
             )}
 
             {isStaff && (
               <>
-                <button onClick={() => router.push("/meal-plan")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
-                  <p className="font-black text-slate-800">Current Checklist</p>
-                  <p className="text-sm text-slate-500 mt-1">Open the approved plan checklist when available</p>
+                <button onClick={() => router.push("/meal-plan")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
+                  <p className="font-black text-slate-800">Checklist</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Open the approved checklist for the current week.</p>
                 </button>
-                <button onClick={() => router.push("/inventory")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button
+                  onClick={() => router.push("/meal-plan")}
+                  className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50"
+                >
+                  <p className="font-black text-slate-800">View Checklist</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Review ingredient checklist and mark completion.</p>
+                </button>
+                <button onClick={() => router.push("/inventory")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">Manage Inventory Stocks</p>
-                  <p className="text-sm text-slate-500 mt-1">Update stock levels based on current inventory movement</p>
+                  <p className="mt-1 text-[13px] text-slate-500">Update stock levels based on current inventory movement</p>
                 </button>
-                <button onClick={() => router.push("/student-menu")} className="text-left p-5 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <button onClick={() => router.push("/student-menu")} className="rounded-xl border border-slate-200 p-3.5 text-left transition-colors hover:bg-slate-50">
                   <p className="font-black text-slate-800">View Weekly Menu</p>
-                  <p className="text-sm text-slate-500 mt-1">See the approved weekly menu in read-only mode</p>
+                  <p className="mt-1 text-[13px] text-slate-500">See the approved weekly menu in read-only mode</p>
                 </button>
               </>
             )}
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="font-black text-slate-800 uppercase mb-6">
+        <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-sm lg:p-4">
+          <h2 className="mb-3 font-black uppercase text-slate-800">
             {isAdmin ? "Analytics" : "Operations"}
           </h2>
 
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 p-5 bg-slate-50">
+          <div className="space-y-2.5">
+            {isStaff && planCount.current === 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                <p className="font-black text-amber-800">No Checklist Generated Yet</p>
+              </div>
+            )}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
               <div className="flex items-center gap-3">
                 <ShieldCheck className="text-[#6BCB3B]" size={20} />
                 <p className="font-black text-slate-800">
                   {isAdmin ? "Approved Plans" : "Ready for Service"}
                 </p>
               </div>
-              <p className="text-3xl font-black text-slate-800 mt-3">{planCount.approved}</p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="mt-1.5 text-[1.8rem] font-black text-slate-800">{planCount.approved}</p>
+              <p className="mt-1 text-[13px] text-slate-500">
                 {isAdmin
                   ? "Meal plans approved and ready for staff visibility."
                   : "Approved plans available for operational execution."}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 p-5 bg-slate-50">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
               <div className="flex items-center gap-3">
                 <ClipboardCheck className="text-blue-600" size={20} />
                 <p className="font-black text-slate-800">
                   {isAdmin ? "Pending Reviews" : "Action Needed"}
                 </p>
               </div>
-              <p className="text-3xl font-black text-slate-800 mt-3">{planCount.pending}</p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="mt-1.5 text-[1.8rem] font-black text-slate-800">{planCount.pending}</p>
+              <p className="mt-1 text-[13px] text-slate-500">
                 {isAdmin
                   ? "Submitted meal plans waiting for budget review and approval."
                   : "Items that still require approval or stock attention."}

@@ -2,13 +2,13 @@
 -- Backend reference: c:\Users\User\stockmate-api\main.go
 --
 -- Sample login credentials:
--- admin@stockmate.com / admin123
+-- stockmatedata@gmail.com / admin123
 -- maria@stockmate.com / cook123
 -- john@stockmate.com / staff123
 -- pending@example.com / pending123
 --
 -- Notes:
--- 1. The backend also auto-seeds devillakelvinjohn@gmail.com / admin123.
+-- 1. The backend also auto-seeds stockmatedata@gmail.com / admin123.
 -- 2. This file uses the current columns:
 --    users.password
 --    inventory.item, qty, threshold, unit, price, status
@@ -27,13 +27,13 @@ BEGIN;
 --   'macaroni', 'milk', 'beef tapa', 'eggs', 'malunggay'
 -- );
 -- DELETE FROM users WHERE LOWER(email) IN (
---   'admin@stockmate.com', 'maria@stockmate.com', 'john@stockmate.com', 'pending@example.com'
+--   'stockmatedata@gmail.com', 'maria@stockmate.com', 'john@stockmate.com', 'pending@example.com'
 -- );
 
 -- Users
 INSERT INTO users (username, full_name, email, password, role, status, is_active, contact_number)
 VALUES
-  ('admin_demo', 'System Administrator', 'admin@stockmate.com', '$2a$10$HeRbZOx6rNOwJkhwMPaA8.tsGgADVVsQJOlUjW6s7txSU31Iii8NO', 'admin', 'approved', true, '+1234567890'),
+  ('admin_demo', 'System Administrator', 'stockmatedata@gmail.com', '$2a$10$HeRbZOx6rNOwJkhwMPaA8.tsGgADVVsQJOlUjW6s7txSU31Iii8NO', 'admin', 'approved', true, '+1234567890'),
   ('cook1', 'Chef Maria Santos', 'maria@stockmate.com', '$2a$10$4M4oFGbfzbVSuPZhaEuGTOZEoPafDsbZ.MVIHXlv7oKsS/lF54VWe', 'cook', 'approved', true, '+1234567891'),
   ('staff1', 'John Doe', 'john@stockmate.com', '$2a$10$dXBPMgne.XWOG/TKBKK4jumX1vqD07WSA2fvFSnrgxItpJedZA4HG', 'staff', 'approved', true, '+1234567892'),
   ('pending_user', 'Pending Registration', 'pending@example.com', '$2a$10$PPZ3KomoXtZWCfPcRZTt2.dl7NJRWa7zVnk6Itx0ixsbtTThhU/zi', 'staff', 'pending', false, '+1234567893')
